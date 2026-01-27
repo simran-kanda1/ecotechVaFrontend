@@ -60,6 +60,7 @@ export const MOCK_CALLS = [
             "callOutcome": "failed",
             "callStartedAt": "2026-01-19T20:00:20-05:00",
             "callStatus": "ended",
+            "nextCallbackTime": "2026-01-28T10:00:00-05:00"
         },
         "firstName": "Simran",
         "lastName": "Kanda",

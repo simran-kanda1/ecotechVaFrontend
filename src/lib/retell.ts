@@ -30,7 +30,7 @@ export interface RetellCall {
     // Add other fields as needed
 }
 
-export async function fetchRetellCalls(limit = 100): Promise<RetellCall[]> {
+export async function fetchRetellCalls(limit = 1000): Promise<RetellCall[]> {
     if (!apiKey) {
         console.error("Retell API Key is missing");
         return [];

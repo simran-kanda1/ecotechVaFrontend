@@ -1,20 +1,9 @@
-import Retell from 'retell-sdk';
+// Retell API Client (Lightweight replacement for retell-sdk to avoid Node.js polyfills)
 
 const apiKey = import.meta.env.VITE_RETELL_API_KEY || "key_fad360827b8750f1277df70c3573";
 
 // Phone number to filter by (EcoTech's number)
-// Based on observed call logs
 export const ECOTECH_NUMBER = "+12898166495";
-
-let retellClient: Retell;
-
-try {
-    retellClient = new Retell({
-        apiKey: apiKey,
-    });
-} catch (error) {
-    console.error("Failed to initialize Retell client:", error);
-}
 
 export interface RetellCall {
     call_id: string;
@@ -42,21 +31,39 @@ export interface RetellCall {
 }
 
 export async function fetchRetellCalls(limit = 100): Promise<RetellCall[]> {
-    if (!retellClient) return [];
+    if (!apiKey) {
+        console.error("Retell API Key is missing");
+        return [];
+    }
 
     try {
-        // The SDK returns a list response. We might need to handle pagination if needed, 
-        // but for now we just get the first batch.
-        const response = await retellClient.call.list({
-            limit: limit,
-            // filter_criteria: { from_number: ECOTECH_NUMBER } // Check if SDK supports this
+        const response = await fetch("https://api.retellai.com/v2/list-calls", {
+            method: "POST", // Retell 'list-calls' is a POST request
+            headers: {
+                "Authorization": `Bearer ${apiKey}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                limit: limit
+            })
         });
 
-        // SDK usually returns strictly strictly typed objects.
-        // We cast or map as needed.
-        return response as unknown as RetellCall[];
+        if (!response.ok) {
+            throw new Error(`Retell API error: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+
+        // Ensure we return an array
+        if (Array.isArray(data)) {
+            return data as RetellCall[];
+        } else {
+            console.warn("Retell API returned unexpected format", data);
+            return [];
+        }
+
     } catch (error) {
         console.error("Error fetching Retell calls:", error);
-        throw error;
+        return [];
     }
 }

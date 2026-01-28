@@ -7,9 +7,10 @@ interface CallDetailModalProps {
     isOpen: boolean;
     onClose: () => void;
     call: any;
+    onViewOpportunity?: (call: any) => void;
 }
 
-export function CallDetailModal({ isOpen, onClose, call }: CallDetailModalProps) {
+export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity }: CallDetailModalProps) {
     if (!call) return null;
 
     // Robust data extraction to handle various nesting structures
@@ -56,6 +57,7 @@ export function CallDetailModal({ isOpen, onClose, call }: CallDetailModalProps)
     const appointmentBooked = getValue('appointmentBooked') === true;
     const crmLeadId = getValue('crmLeadId');
     const userSentiment = getValue('user_sentiment') || getValue('userSentiment');
+    const lastCallTime = getValue('lastCallbackTriggeredAt') || getValue('callEndedAt') || getValue('callStartedAt') || getValue('receivedAt');
 
     // Shim for backward compatibility with existing JSX that uses customData.*
     const customData = {
@@ -232,6 +234,28 @@ export function CallDetailModal({ isOpen, onClose, call }: CallDetailModalProps)
                                                         <FileText className="w-3 h-3" />
                                                         {customData.crmLeadId}
                                                     </div>
+                                                </div>
+                                            )}
+
+                                            {/* Last Called */}
+                                            {lastCallTime && (
+                                                <div className="flex justify-between items-center py-2 border-t border-slate-50 dark:border-slate-800/50 mt-2 pt-2">
+                                                    <span className="text-sm text-slate-500 font-medium text-royal-600/80">Last Called</span>
+                                                    <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                        {format(new Date(lastCallTime.seconds ? lastCallTime.seconds * 1000 : lastCallTime), "MMM d, h:mm a")}
+                                                    </span>
+                                                </div>
+                                            )}
+
+                                            {/* View Opportunity Button (for Logs) */}
+                                            {onViewOpportunity && (
+                                                <div className="mt-4 pt-2">
+                                                    <button
+                                                        onClick={() => onViewOpportunity(call)}
+                                                        className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm font-medium transition-colors"
+                                                    >
+                                                        View Opportunity Details
+                                                    </button>
                                                 </div>
                                             )}
                                         </div>

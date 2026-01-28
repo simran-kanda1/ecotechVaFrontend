@@ -8,6 +8,7 @@ import { Loader2, PhoneIncoming, CheckCircle, Calendar as CalendarIcon, ChevronL
 import { format, isAfter, isBefore, subMonths, addMonths } from "date-fns";
 import { cn } from "../lib/utils";
 import { MOCK_CALLS } from "../data/mock-data";
+import { fetchRetellCalls, ECOTECH_NUMBER } from "../lib/retell";
 
 // Type definitions
 type Call = any;
@@ -29,6 +30,9 @@ export default function Dashboard() {
 
     // Pagination State (Client-side for filtered results)
     const [currentPage, setCurrentPage] = useState(1);
+
+    // Retell Logs State
+    const [retellLogs, setRetellLogs] = useState<any[]>([]);
 
     // Helper to calculate billing cycle range
     const getBillingCycle = (date: Date) => {
@@ -113,6 +117,35 @@ export default function Dashboard() {
         fetchData();
     }, []);
 
+    // Fetch Retell Logs
+    useEffect(() => {
+        if (activeTab === 'logs' && retellLogs.length === 0) {
+            setLoading(true);
+            fetchRetellCalls()
+                .then(calls => {
+                    // Filter by from_number (ECOTECH_NUMBER) and map
+                    const logs = calls
+                        .filter((c: any) => c.from_number === ECOTECH_NUMBER)
+                        .map((c: any) => ({
+                            id: c.call_id,
+                            receivedAt: { seconds: c.start_timestamp / 1000 },
+                            firstName: "Unknown",
+                            lastName: "",
+                            phoneNumber: c.to_number, // Outbound call target
+                            callStatus: c.call_status,
+                            callOutcome: c.call_analysis?.custom_analysis_data?.callOutcome || c.call_analysis?.user_sentiment || "Unknown",
+                            disconnection_reason: c.disconnection_reason,
+                            custom_analysis_data: c.call_analysis?.custom_analysis_data,
+                            ...c,
+                            isRetellCall: true
+                        }));
+                    setRetellLogs(logs);
+                })
+                .catch(err => console.error("Failed to fetch retell logs", err))
+                .finally(() => setLoading(false));
+        }
+    }, [activeTab]);
+
     // Filter Logic based on Active Tab
     const filteredItems = (() => {
         const now = new Date();
@@ -140,45 +173,12 @@ export default function Dashboard() {
                 return dateA.getTime() - dateB.getTime();
             });
         } else {
-            // Call Logs = Combined list of Past items or Leads
-            // 1. Leads (Initial calls)
-            // 2. ScheduledCallbacks (Past attempts)
-
-            const logsFromLeads = leads.map(l => ({ ...l, _source: 'lead', _timestamp: l.receivedAt || l.callStartedAt }));
-
-            const logsFromCallbacks = scheduledCallbacks.filter(c => {
-                const scheduledFor = c.scheduledFor || c.nextCallbackTime;
-                if (!scheduledFor) return false;
-                let date = scheduledFor?.seconds ? new Date(scheduledFor.seconds * 1000) : new Date(scheduledFor);
-                // Include if in the past
-                return isBefore(date, now);
-            }).map(c => ({ ...c, _source: 'callback', _timestamp: c.scheduledFor || c.nextCallbackTime }));
-
-            const combined = [...logsFromLeads, ...logsFromCallbacks];
-
-            return combined.filter(item => {
-                // Filter by billing cycle AND Business Hours (9am - 9pm)
-                let dateStr = item._timestamp;
-                if (!dateStr) return true;
-                let date = dateStr?.seconds ? new Date(dateStr.seconds * 1000) : new Date(dateStr);
-
-                // Business Hours Filtering
-                const hour = date.getHours();
-                // Exclude if before 9am OR after 9pm (21:00)
-                // Note: user said "after 9pm", so we include 9pm? "it is probably just when the new lead is added"
-                // Usually business hours are 9-5 or 9-9. Let's strictly say if hour < 9 or hour >= 21
-                if (hour < 9 || hour >= 21) {
-                    return false;
-                }
-
-                return isAfter(date, start) && isBefore(date, end);
-            }).sort((a, b) => {
-                // Descending (Newest first)
-                const timeA = a._timestamp;
-                const timeB = b._timestamp;
-                const dateA = timeA?.seconds ? new Date(timeA.seconds * 1000) : new Date(timeA || 0);
-                const dateB = timeB?.seconds ? new Date(timeB.seconds * 1000) : new Date(timeB || 0);
-                return dateB.getTime() - dateA.getTime();
+            // Retell Logs - Fetched from API
+            // Already sorted by API usually, but safely sort descending
+            return retellLogs.sort((a, b) => {
+                const timeA = a.receivedAt?.seconds || 0;
+                const timeB = b.receivedAt?.seconds || 0;
+                return timeB - timeA;
             });
         }
     })();
@@ -199,6 +199,27 @@ export default function Dashboard() {
     const prevCycle = () => {
         setCurrentCycleDate(prev => subMonths(prev, 1));
         setCurrentPage(1);
+    };
+
+    const handleViewOpportunity = (call: any) => {
+        const phoneNumber = call.to_number || call.phoneNumber;
+        if (!phoneNumber) return;
+
+        // Try exact match or flexible match
+        const matchingLead = leads.find(l =>
+            l.phoneNumber === phoneNumber ||
+            l.custom_analysis_data?.customerPhone === phoneNumber ||
+            // Basic flexibility: Check if one ends with the other (handling country codes partially)
+            (l.phoneNumber && phoneNumber.endsWith(l.phoneNumber.replace('+1', '').replace('+', '')))
+        );
+
+        if (matchingLead) {
+            setActiveTab('opportunities');
+            setSelectedCall(matchingLead);
+        } else {
+            // Optional: User feedback if not found
+            console.log("No matching opportunity found");
+        }
     };
 
     return (
@@ -362,7 +383,7 @@ export default function Dashboard() {
                                         <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[240px]">Customer</th>
                                         <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Address</th>
                                         <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[140px]">Status</th>
-                                        <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[140px]">Outcome</th>
+                                        <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[140px]">{activeTab === 'logs' ? 'Disconnection Reason' : 'Outcome'}</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -385,26 +406,73 @@ export default function Dashboard() {
                                         const isBooked = customData.appointmentBooked || call.appointmentBooked;
 
                                         // Address fallback
-                                        let address = call.address || call.callAnalysis?.address || customData.city || "Unknown Location";
+                                        // Priority: 1. Top level, 2. custom_analysis_data, 3. customAnalysisDataRaw, 4. callAnalysis, 5. City fallback
+                                        let address = call.address ||
+                                            customData.address ||
+                                            call.customAnalysisDataRaw?.address ||
+                                            call.callAnalysis?.address ||
+                                            call.city ||
+                                            customData.city ||
+                                            "Unknown Location";
 
                                         // Handle names/phone
                                         let firstName = customData.firstName || call.firstName || "Unknown";
                                         let lastName = customData.lastName || call.lastName || "";
                                         let phoneNumber = call.phoneNumber || customData.customerPhone;
 
-                                        // Override for Scheduled Callbacks (leadData structure)
-                                        // OR if it's a 'log' that came from a callback source
-                                        if ((activeTab === 'scheduled' || call._source === 'callback') && call.leadData) {
-                                            firstName = call.leadData.firstName || firstName;
-                                            lastName = call.leadData.lastName || lastName;
-                                            phoneNumber = call.leadData.phone || phoneNumber;
-                                            address = call.leadData.address || address;
+                                        // Lookup Helper for "Unknown" names in Logs
+                                        if ((activeTab === 'scheduled' || activeTab === 'logs')) {
+                                            // 1. Try attached leadData
+                                            if (call.leadData) {
+                                                firstName = call.leadData.firstName || firstName;
+                                                lastName = call.leadData.lastName || lastName;
+                                                phoneNumber = call.leadData.phone || phoneNumber;
+                                                address = call.leadData.address || address;
+                                            }
+                                            // 2. Try looking up in the 'leads' array (Opportunities)
+                                            else if (phoneNumber) {
+                                                // Normalize helper: remove non-digits, compare last 10 chars
+                                                const clean = (p: string) => p?.replace(/\D/g, '').slice(-10) || "";
+                                                const targetPhone = clean(phoneNumber);
+
+                                                const matchingLead = leads.find(l => {
+                                                    const p1 = clean(l.phoneNumber);
+                                                    const p2 = clean(l.custom_analysis_data?.customerPhone);
+                                                    return (p1 && p1 === targetPhone) || (p2 && p2 === targetPhone);
+                                                });
+
+                                                if (matchingLead) {
+                                                    const leadCustomData = matchingLead.custom_analysis_data || {};
+                                                    firstName = leadCustomData.firstName || matchingLead.firstName || firstName;
+                                                    lastName = leadCustomData.lastName || matchingLead.lastName || lastName;
+
+                                                    // Only override address if it's currently generic/unknown
+                                                    if (!address || address === "Unknown Location") {
+                                                        address = matchingLead.address ||
+                                                            leadCustomData.address ||
+                                                            matchingLead.customAnalysisDataRaw?.address ||
+                                                            matchingLead.callAnalysis?.address ||
+                                                            matchingLead.city ||
+                                                            leadCustomData.city ||
+                                                            address;
+                                                    }
+                                                }
+                                            }
                                         }
+
+                                        // Merge enriched data back into a display object so the Modal receives it too
+                                        const enrichedCall = {
+                                            ...call,
+                                            firstName,
+                                            lastName,
+                                            phoneNumber,
+                                            address
+                                        };
 
                                         return (
                                             <tr
                                                 key={call.id || Math.random()}
-                                                onClick={() => setSelectedCall(call)}
+                                                onClick={() => setSelectedCall(enrichedCall)}
                                                 className="group hover:bg-blue-50/30 dark:hover:bg-blue-900/10 cursor-pointer transition-all duration-200"
                                             >
                                                 {/* Date Block */}
@@ -462,9 +530,9 @@ export default function Dashboard() {
                                                 <td className="px-6 py-4 whitespace-nowrap">
                                                     <span className={cn(
                                                         "px-2.5 py-1 rounded-full text-xs font-medium inline-flex items-center gap-1.5",
-                                                        call.callStatus === "ended" ? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" : "bg-amber-50 text-amber-700"
+                                                        (call.callStatus === "ended" || call.callStatus === "registered") ? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" : "bg-amber-50 text-amber-700"
                                                     )}>
-                                                        <span className={cn("w-1.5 h-1.5 rounded-full", call.callStatus === "ended" ? "bg-slate-400" : "bg-amber-400")}></span>
+                                                        <span className={cn("w-1.5 h-1.5 rounded-full", (call.callStatus === "ended" || call.callStatus === "registered") ? "bg-slate-400" : "bg-amber-400")}></span>
                                                         {call.callStatus || "Unknown"}
                                                     </span>
                                                 </td>
@@ -477,9 +545,24 @@ export default function Dashboard() {
                                                             Booked
                                                         </span>
                                                     ) : (
-                                                        <span className="text-sm text-slate-500 capitalize px-2">
-                                                            {call.callOutcome || "No outcome"}
-                                                        </span>
+                                                        <div className="flex flex-col">
+                                                            <span className="text-sm text-slate-500 capitalize px-2">
+                                                                {(() => {
+                                                                    const reason = call.disconnection_reason ||
+                                                                        call.callAnalysis?.disconnection_reason ||
+                                                                        call.customAnalysisDataRaw?.disconnection_reason;
+
+                                                                    const outcome = call.callOutcome || "No outcome";
+                                                                    const isFailure = outcome === 'failed' || outcome === 'error' || outcome === 'Unknown';
+
+                                                                    if (isFailure || reason) {
+                                                                        // Prefer reason, fallback to "Unsuccessful" (hiding strict "failed")
+                                                                        return (reason || "Unsuccessful").replace(/_/g, " ");
+                                                                    }
+                                                                    return outcome;
+                                                                })()}
+                                                            </span>
+                                                        </div>
                                                     )}
                                                 </td>
                                             </tr>
@@ -518,6 +601,7 @@ export default function Dashboard() {
                 isOpen={!!selectedCall}
                 onClose={() => setSelectedCall(null)}
                 call={selectedCall}
+                onViewOpportunity={activeTab === 'logs' ? handleViewOpportunity : undefined}
             />
 
             <AddLeadModal

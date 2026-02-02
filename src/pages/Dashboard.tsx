@@ -5,7 +5,7 @@ import { Header } from "../components/Header";
 import { AddLeadModal } from "../components/AddLeadModal";
 import { CallDetailModal } from "../components/CallDetailModal";
 import { Loader2, PhoneIncoming, CheckCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Phone, Clock, User, Plus } from "lucide-react";
-import { format, isAfter, isBefore, subMonths, addMonths } from "date-fns";
+import { format, isAfter, isBefore, subMonths, addMonths, startOfDay } from "date-fns";
 import { cn } from "../lib/utils";
 import { MOCK_CALLS } from "../data/mock-data";
 import { fetchRetellCalls, ECOTECH_NUMBER } from "../lib/retell";
@@ -161,8 +161,10 @@ export default function Dashboard() {
             return scheduledCallbacks.filter((call) => {
                 const scheduledFor = call.scheduledFor || call.nextCallbackTime || call.custom_analysis_data?.nextCallbackTime;
                 if (!scheduledFor) return false;
-                // Show all scheduled callbacks, even if they are in the past (overdue)
-                return true;
+                let date = scheduledFor?.seconds ? new Date(scheduledFor.seconds * 1000) : new Date(scheduledFor);
+                // Show current date and onwards (exclude past days)
+                const startOfToday = startOfDay(new Date());
+                return !isBefore(date, startOfToday);
             }).sort((a, b) => {
                 // Ascending (Next up first)
                 const timeA = a.scheduledFor || a.nextCallbackTime;

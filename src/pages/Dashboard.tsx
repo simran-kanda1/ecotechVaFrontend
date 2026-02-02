@@ -148,7 +148,6 @@ export default function Dashboard() {
 
     // Filter Logic based on Active Tab
     const filteredItems = (() => {
-        const now = new Date();
 
         if (activeTab === 'opportunities') {
             return leads.filter((call) => {
@@ -162,8 +161,8 @@ export default function Dashboard() {
             return scheduledCallbacks.filter((call) => {
                 const scheduledFor = call.scheduledFor || call.nextCallbackTime || call.custom_analysis_data?.nextCallbackTime;
                 if (!scheduledFor) return false;
-                let date = scheduledFor?.seconds ? new Date(scheduledFor.seconds * 1000) : new Date(scheduledFor);
-                return isAfter(date, now);
+                // Show all scheduled callbacks, even if they are in the past (overdue)
+                return true;
             }).sort((a, b) => {
                 // Ascending (Next up first)
                 const timeA = a.scheduledFor || a.nextCallbackTime;

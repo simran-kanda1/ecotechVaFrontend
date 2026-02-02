@@ -527,13 +527,20 @@ export default function Dashboard() {
 
                                                 {/* Status Pill */}
                                                 <td className="px-6 py-4 whitespace-nowrap">
-                                                    <span className={cn(
-                                                        "px-2.5 py-1 rounded-full text-xs font-medium inline-flex items-center gap-1.5",
-                                                        (call.callStatus === "ended" || call.callStatus === "registered") ? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" : "bg-amber-50 text-amber-700"
-                                                    )}>
-                                                        <span className={cn("w-1.5 h-1.5 rounded-full", (call.callStatus === "ended" || call.callStatus === "registered") ? "bg-slate-400" : "bg-amber-400")}></span>
-                                                        {call.callStatus || "Unknown"}
-                                                    </span>
+                                                    <div className="flex flex-col gap-1.5 items-start">
+                                                        <span className={cn(
+                                                            "px-2.5 py-1 rounded-full text-xs font-medium inline-flex items-center gap-1.5",
+                                                            (call.callStatus === "ended" || call.callStatus === "registered") ? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" : "bg-amber-50 text-amber-700"
+                                                        )}>
+                                                            <span className={cn("w-1.5 h-1.5 rounded-full", (call.callStatus === "ended" || call.callStatus === "registered") ? "bg-slate-400" : "bg-amber-400")}></span>
+                                                            {call.callStatus || "Unknown"}
+                                                        </span>
+                                                        {call.callbackAttemptNumber !== undefined && (
+                                                            <span className="text-[10px] uppercase tracking-wide font-medium text-slate-400 px-1">
+                                                                Attempt #{call.callbackAttemptNumber}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </td>
 
                                                 {/* Outcome/Result */}

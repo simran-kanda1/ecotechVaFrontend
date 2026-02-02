@@ -78,7 +78,7 @@ export default function Dashboard() {
                 // 2. Fetch SCHEDULED CALLBACKS
                 // fetch without ordering first to avoid index errors, then sort client-side
                 const callbacksRef = collection(db, "scheduledCallbacks");
-                const qCallbacks = query(callbacksRef, limit(100));
+                const qCallbacks = query(callbacksRef, limit(1000));
 
                 let fetchedCallbacks: Call[] = [];
                 try {

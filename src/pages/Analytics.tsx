@@ -10,6 +10,8 @@ import {
 } from "recharts";
 import { cn } from "../lib/utils";
 
+import { fetchRetellCalls, ECOTECH_NUMBER } from "../lib/retell";
+
 const COLORS = ['#00C49F', '#FFBB28', '#FF8042', '#0088FE'];
 
 // Simple stats card component
@@ -31,6 +33,7 @@ function StatCard({ title, value, subtext, icon: Icon, colorClass }: any) {
 export default function Analytics() {
     const [, setLoading] = useState(true);
     const [calls, setCalls] = useState<any[]>([]);
+    const [retellCallCount, setRetellCallCount] = useState(0);
 
     // Fetch data
     useEffect(() => {
@@ -52,6 +55,16 @@ export default function Analytics() {
                     console.warn("Analytics fetch failed (likely dev mode/no data), using empty array", e);
                 }
                 setCalls(fetchedCalls);
+
+                // Fetch actual call count from Retell
+                try {
+                    const rCalls = await fetchRetellCalls(1000);
+                    const relevantCalls = rCalls.filter((c: any) => c.from_number === ECOTECH_NUMBER);
+                    setRetellCallCount(relevantCalls.length);
+                } catch (e) {
+                    console.error("Failed to fetch retell stats", e);
+                }
+
             } catch (error) {
                 console.error("Error fetching analytics data:", error);
             } finally {
@@ -63,7 +76,9 @@ export default function Analytics() {
     }, []);
 
     // Process Data
-    const totalCalls = calls.length;
+    // Process Data
+    // User requested "Total Calls" to be actual calls (Retell), not just opportunities
+    const totalCalls = retellCallCount > 0 ? retellCallCount : calls.length;
 
     // Status/Outcome Stats
     const totalBooked = calls.filter(c => c.custom_analysis_data?.appointmentBooked || c.appointmentBooked).length;
@@ -86,6 +101,9 @@ export default function Analytics() {
     const outcomeData = Object.keys(outcomes).map(key => ({ name: key, value: outcomes[key] }));
 
     // Timeline Data (Last 30 days or range)
+    // Note: This timeline is still based on "Opportunities" (leads collection) because we don't have time-series for all Retell calls easily mapped without more logic.
+    // Use it as "Opportunities vs Booked" for now or keep as "Calls vs Booked" if leads roughly track calls?
+    // The user didn't complain about the chart, just the "Total Calls" number.
     const timelineData = (() => {
         const today = new Date();
         const days = eachDayOfInterval({

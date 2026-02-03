@@ -36,6 +36,8 @@ export async function fetchRetellCalls(limit = 5000): Promise<RetellCall[]> {
         return [];
     }
 
+    console.log("Starting to fetch Retell calls...");
+
     let allCalls: RetellCall[] = [];
     let paginationKey: string | undefined = undefined;
     const BATCH_SIZE = 1000; // Retell API max limit per request

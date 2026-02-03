@@ -122,7 +122,7 @@ export default function Dashboard() {
     useEffect(() => {
         if (activeTab === 'logs' && retellLogs.length === 0) {
             setLoading(true);
-            fetchRetellCalls()
+            fetchRetellCalls(5000) // Increase limit to ensure we capture the full month
                 .then(calls => {
                     // Filter by from_number (ECOTECH_NUMBER) and map
                     const logs = calls
@@ -137,6 +137,10 @@ export default function Dashboard() {
                             callOutcome: c.call_analysis?.custom_analysis_data?.callOutcome || c.call_analysis?.user_sentiment || "Unknown",
                             disconnection_reason: c.disconnection_reason,
                             custom_analysis_data: c.call_analysis?.custom_analysis_data,
+                            // Map snake_case from Retell to camelCase for Modal
+                            callAnalysis: c.call_analysis,
+                            recordingUrl: c.recording_url,
+                            transcript: c.transcript,
                             ...c,
                             isRetellCall: true
                         }));
@@ -177,8 +181,12 @@ export default function Dashboard() {
             });
         } else {
             // Retell Logs - Fetched from API
-            // Already sorted by API usually, but safely sort descending
-            items = retellLogs.sort((a, b) => {
+            items = retellLogs.filter((call) => {
+                let dateStr = call.receivedAt || call.callStartedAt;
+                if (!dateStr) return false;
+                let date = dateStr?.seconds ? new Date(dateStr.seconds * 1000) : new Date(dateStr);
+                return isAfter(date, start) && isBefore(date, end);
+            }).sort((a, b) => {
                 const timeA = a.receivedAt?.seconds || 0;
                 const timeB = b.receivedAt?.seconds || 0;
                 return timeB - timeA;

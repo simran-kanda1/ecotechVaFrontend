@@ -170,7 +170,7 @@ export default function Dashboard() {
                 let date = scheduledFor?.seconds ? new Date(scheduledFor.seconds * 1000) : new Date(scheduledFor);
                 // Show current date and onwards (exclude past days)
                 const startOfToday = startOfDay(new Date());
-                return !isBefore(date, startOfToday);
+                return !isBefore(date, startOfToday) && call.status === 'pending';
             }).sort((a, b) => {
                 // Ascending (Next up first)
                 const timeA = a.scheduledFor || a.nextCallbackTime;

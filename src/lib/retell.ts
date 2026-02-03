@@ -30,40 +30,63 @@ export interface RetellCall {
     // Add other fields as needed
 }
 
-export async function fetchRetellCalls(limit = 1000): Promise<RetellCall[]> {
+export async function fetchRetellCalls(limit = 5000): Promise<RetellCall[]> {
     if (!apiKey) {
         console.error("Retell API Key is missing");
         return [];
     }
 
+    let allCalls: RetellCall[] = [];
+    let paginationKey: string | undefined = undefined;
+    const BATCH_SIZE = 1000; // Retell API max limit per request
+
     try {
-        const response = await fetch("https://api.retellai.com/v2/list-calls", {
-            method: "POST", // Retell 'list-calls' is a POST request
-            headers: {
-                "Authorization": `Bearer ${apiKey}`,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                limit: limit
-            })
-        });
+        while (allCalls.length < limit) {
+            // Determine how many to fetch in this batch
+            const remaining = limit - allCalls.length;
+            const fetchLimit = Math.min(remaining, BATCH_SIZE);
 
-        if (!response.ok) {
-            throw new Error(`Retell API error: ${response.status} ${response.statusText}`);
+            const response = await fetch("https://api.retellai.com/v2/list-calls", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${apiKey}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    limit: fetchLimit,
+                    pagination_key: paginationKey,
+                    // optimization: filter by date if possible, but Retell doesn't support simple date param in top level, 
+                    // only via filter_criteria which is complex. For now, fetch all chronological.
+                    sort_order: 'descending' // Default is descending, making sure we get latest first
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Retell API error: ${response.status} ${response.statusText}`);
+            }
+
+            const data = await response.json();
+
+            if (Array.isArray(data)) {
+                if (data.length === 0) break;
+
+                allCalls = [...allCalls, ...data];
+
+                // If we got fewer than we asked for, we are at the end
+                if (data.length < fetchLimit) break;
+
+                // Prepare next cursor
+                paginationKey = data[data.length - 1].call_id;
+            } else {
+                console.warn("Retell API returned unexpected format", data);
+                break;
+            }
         }
 
-        const data = await response.json();
-
-        // Ensure we return an array
-        if (Array.isArray(data)) {
-            return data as RetellCall[];
-        } else {
-            console.warn("Retell API returned unexpected format", data);
-            return [];
-        }
+        return allCalls as RetellCall[];
 
     } catch (error) {
         console.error("Error fetching Retell calls:", error);
-        return [];
+        return allCalls; // Return what we have so far
     }
 }

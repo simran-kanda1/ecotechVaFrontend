@@ -4,7 +4,7 @@ import { db } from "../lib/firebase";
 import { Header } from "../components/Header";
 import { AddLeadModal } from "../components/AddLeadModal";
 import { CallDetailModal } from "../components/CallDetailModal";
-import { Loader2, PhoneIncoming, CheckCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Phone, Clock, User, Plus } from "lucide-react";
+import { Loader2, PhoneIncoming, CheckCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Phone, Clock, User, Plus, Search } from "lucide-react";
 import { format, isAfter, isBefore, subMonths, addMonths, startOfDay } from "date-fns";
 import { cn } from "../lib/utils";
 import { MOCK_CALLS } from "../data/mock-data";
@@ -19,6 +19,7 @@ export default function Dashboard() {
     const [activeTab, setActiveTab] = useState<'opportunities' | 'scheduled' | 'logs'>('opportunities');
     const [leads, setLeads] = useState<Call[]>([]);
     const [scheduledCallbacks, setScheduledCallbacks] = useState<Call[]>([]);
+    const [searchQuery, setSearchQuery] = useState("");
 
     const [loading, setLoading] = useState(true);
     const [selectedCall, setSelectedCall] = useState<Call | null>(null);
@@ -148,9 +149,10 @@ export default function Dashboard() {
 
     // Filter Logic based on Active Tab
     const filteredItems = (() => {
+        let items: Call[] = [];
 
         if (activeTab === 'opportunities') {
-            return leads.filter((call) => {
+            items = leads.filter((call) => {
                 let dateStr = call.receivedAt || call.callStartedAt;
                 if (!dateStr) return false;
                 let date = dateStr?.seconds ? new Date(dateStr.seconds * 1000) : new Date(dateStr);
@@ -158,7 +160,7 @@ export default function Dashboard() {
             });
         } else if (activeTab === 'scheduled') {
             // Upcoming callbacks - Future only
-            return scheduledCallbacks.filter((call) => {
+            items = scheduledCallbacks.filter((call) => {
                 const scheduledFor = call.scheduledFor || call.nextCallbackTime || call.custom_analysis_data?.nextCallbackTime;
                 if (!scheduledFor) return false;
                 let date = scheduledFor?.seconds ? new Date(scheduledFor.seconds * 1000) : new Date(scheduledFor);
@@ -176,12 +178,29 @@ export default function Dashboard() {
         } else {
             // Retell Logs - Fetched from API
             // Already sorted by API usually, but safely sort descending
-            return retellLogs.sort((a, b) => {
+            items = retellLogs.sort((a, b) => {
                 const timeA = a.receivedAt?.seconds || 0;
                 const timeB = b.receivedAt?.seconds || 0;
                 return timeB - timeA;
             });
         }
+
+        // Apply Search Filter
+        if (searchQuery.trim()) {
+            const lowerQuery = searchQuery.toLowerCase();
+            items = items.filter(item => {
+                const customData = item.custom_analysis_data || {};
+                const firstName = (customData.firstName || item.firstName || "").toLowerCase();
+                const lastName = (customData.lastName || item.lastName || "").toLowerCase();
+                const phoneNumber = (item.phoneNumber || customData.customerPhone || "").toLowerCase();
+
+                return firstName.includes(lowerQuery) ||
+                    lastName.includes(lowerQuery) ||
+                    phoneNumber.includes(lowerQuery);
+            });
+        }
+
+        return items;
     })();
 
     // Pagination Logic
@@ -330,6 +349,20 @@ export default function Dashboard() {
                         </div>
 
                         <div className="flex items-center gap-4">
+                            {/* Search Bar */}
+                            <div className="relative w-full sm:w-auto">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                <input
+                                    type="text"
+                                    placeholder="Search..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="pl-9 pr-4 py-1.5 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-royal-500/20 w-full sm:w-48 transition-all focus:w-full sm:focus:w-64"
+                                />
+                            </div>
+
+                            <div className="h-6 w-px bg-slate-200 dark:bg-slate-800 mx-2 hidden sm:block"></div>
+
                             <h2 className="font-semibold text-slate-800 dark:text-white flex items-center gap-2">
                                 <span className="hidden sm:inline">
                                     {activeTab === 'opportunities' ? 'Leads' : activeTab === 'scheduled' ? 'Callbacks' : 'Logs'}

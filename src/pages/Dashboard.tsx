@@ -511,11 +511,52 @@ export default function Dashboard() {
                                             address
                                         };
 
+                                        // Check for future callback
+                                        const nextCallbackTimeRaw = call.scheduledFor || call.nextCallbackTime || customData.nextCallbackTime;
+                                        const nextCallbackDate = nextCallbackTimeRaw?.seconds ? new Date(nextCallbackTimeRaw.seconds * 1000) : (nextCallbackTimeRaw ? new Date(nextCallbackTimeRaw) : null);
+                                        const isFutureCallback = nextCallbackDate && isAfter(nextCallbackDate, new Date());
+
+                                        // Check for no contact / voicemail / follow up needs
+                                        const outcome = (call.callOutcome || customData.callOutcome || "unknown").toLowerCase();
+                                        const status = (call.callStatus || "unknown").toLowerCase();
+
+                                        const isOrangeCondition =
+                                            call.callStatus === 'follow_up' ||
+                                            isFutureCallback ||
+                                            outcome === 'voicemail' ||
+                                            outcome === 'no_answer' ||
+                                            outcome === 'not_connected' ||
+                                            outcome === 'unsuccessful' ||
+                                            outcome === 'unknown' ||
+                                            status === 'unknown' ||
+                                            customData.in_voicemail === true ||
+                                            call.in_voicemail === true;
+
+                                        const isDeadLead = call.callStatus === 'dead' || outcome === 'not_interested' || outcome === 'dnc';
+
+                                        // Check for urgent (Booked but missing CRM Lead ID OR Negative Sentiment)
+                                        const hasCrmId = call.crmLeadId || customData.crmLeadId;
+                                        const sentiment = (customData.user_sentiment || call.callAnalysis?.user_sentiment || "").toLowerCase();
+                                        const isUrgent = (isBooked && !hasCrmId) || sentiment === 'negative';
+
                                         return (
                                             <tr
                                                 key={call.id || Math.random()}
                                                 onClick={() => setSelectedCall(enrichedCall)}
-                                                className="group hover:bg-blue-50/30 dark:hover:bg-blue-900/10 cursor-pointer transition-all duration-200"
+                                                className={cn(
+                                                    "group cursor-pointer transition-all duration-200",
+                                                    isUrgent
+                                                        ? "bg-blue-200/80 dark:bg-blue-900/50 hover:bg-blue-300/80 dark:hover:bg-blue-800/60"
+                                                        : isBooked
+                                                            ? "bg-green-200/80 dark:bg-green-900/50 hover:bg-green-300/80 dark:hover:bg-green-800/60"
+                                                            : isDeadLead
+                                                                ? "bg-red-100/70 dark:bg-red-900/30 hover:bg-red-200/70 dark:hover:bg-red-900/50"
+                                                                : (call.callStatus === 'scheduled_outside_hours' || call.callStatus === 'registered')
+                                                                    ? "bg-yellow-100/70 dark:bg-yellow-900/30 hover:bg-yellow-200/70 dark:hover:bg-yellow-900/50"
+                                                                    : isOrangeCondition
+                                                                        ? "bg-orange-200/80 dark:bg-orange-900/50 hover:bg-orange-300/80 dark:hover:bg-orange-800/60"
+                                                                        : "hover:bg-blue-50/30 dark:hover:bg-blue-900/10"
+                                                )}
                                             >
                                                 {/* Date Block */}
                                                 <td className="px-6 py-4 whitespace-nowrap">

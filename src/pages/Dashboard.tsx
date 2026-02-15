@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { collection, query, getDocs, orderBy, limit } from "firebase/firestore";
+import { collection, query, getDocs, orderBy, limit, deleteDoc, doc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { Header } from "../components/Header";
 import { AddLeadModal } from "../components/AddLeadModal";
 import { CallDetailModal } from "../components/CallDetailModal";
-import { Loader2, PhoneIncoming, CheckCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Phone, Clock, User, Plus, Search } from "lucide-react";
+import { Loader2, PhoneIncoming, CheckCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Phone, Clock, User, Plus, Search, Trash2 } from "lucide-react";
 import { format, isAfter, isBefore, subMonths, addMonths, startOfDay } from "date-fns";
 import { cn } from "../lib/utils";
 import { MOCK_CALLS } from "../data/mock-data";
@@ -250,6 +250,19 @@ export default function Dashboard() {
         }
     };
 
+    const handleRemoveScheduled = async (e: React.MouseEvent, callId: string) => {
+        e.stopPropagation(); // Prevent row click
+        if (window.confirm("Are you sure you want to remove this customer from the scheduled callback list?")) {
+            try {
+                await deleteDoc(doc(db, "scheduledCallbacks", callId));
+                setScheduledCallbacks(prev => prev.filter(c => c.id !== callId));
+            } catch (error) {
+                console.error("Error removing scheduled callback:", error);
+                alert("Failed to remove callback. Please try again.");
+            }
+        }
+    };
+
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950 font-sans text-slate-900 dark:text-slate-100">
             <Header />
@@ -426,6 +439,9 @@ export default function Dashboard() {
                                         <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Address</th>
                                         <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[140px]">Status</th>
                                         <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[140px]">{activeTab === 'logs' ? 'Disconnection Reason' : 'Outcome'}</th>
+                                        {activeTab === 'scheduled' && (
+                                            <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[100px] text-right">Actions</th>
+                                        )}
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -532,6 +548,8 @@ export default function Dashboard() {
                                             customData.in_voicemail === true ||
                                             call.in_voicemail === true;
 
+
+                                        const isSupplyOnly = call.customAnalysisDataRaw?.status === 'Supply Only';
                                         const isDeadLead = call.callStatus === 'dead' || outcome === 'not_interested' || outcome === 'dnc';
 
                                         // Check for urgent (Booked but missing CRM Lead ID OR Negative Sentiment)
@@ -549,13 +567,17 @@ export default function Dashboard() {
                                                         ? "bg-blue-200/80 dark:bg-blue-900/50 hover:bg-blue-300/80 dark:hover:bg-blue-800/60"
                                                         : isBooked
                                                             ? "bg-green-200/80 dark:bg-green-900/50 hover:bg-green-300/80 dark:hover:bg-green-800/60"
+
                                                             : isDeadLead
                                                                 ? "bg-red-100/70 dark:bg-red-900/30 hover:bg-red-200/70 dark:hover:bg-red-900/50"
-                                                                : (call.callStatus === 'scheduled_outside_hours' || call.callStatus === 'registered')
-                                                                    ? "bg-yellow-100/70 dark:bg-yellow-900/30 hover:bg-yellow-200/70 dark:hover:bg-yellow-900/50"
-                                                                    : isOrangeCondition
-                                                                        ? "bg-orange-200/80 dark:bg-orange-900/50 hover:bg-orange-300/80 dark:hover:bg-orange-800/60"
-                                                                        : "hover:bg-blue-50/30 dark:hover:bg-blue-900/10"
+                                                                : isSupplyOnly
+                                                                    ? "bg-purple-100/70 dark:bg-purple-900/30 hover:bg-purple-200/70 dark:hover:bg-purple-900/50"
+                                                                    : (call.callStatus === 'scheduled_outside_hours' || call.callStatus === 'registered')
+                                                                        ? "bg-yellow-100/70 dark:bg-yellow-900/30 hover:bg-yellow-200/70 dark:hover:bg-yellow-900/50"
+                                                                        : isOrangeCondition
+
+                                                                            ? "bg-orange-200/80 dark:bg-orange-900/50 hover:bg-orange-300/80 dark:hover:bg-orange-800/60"
+                                                                            : "hover:bg-blue-50/30 dark:hover:bg-blue-900/10"
                                                 )}
                                             >
                                                 {/* Date Block */}
@@ -655,6 +677,20 @@ export default function Dashboard() {
                                                         </div>
                                                     )}
                                                 </td>
+                                                {/* Actions (Only for Scheduled) */}
+                                                {activeTab === 'scheduled' && (
+                                                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                                                        {isFutureCallback && (
+                                                            <button
+                                                                onClick={(e) => handleRemoveScheduled(e, call.id)}
+                                                                className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                                                                title="Remove from scheduled list"
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </button>
+                                                        )}
+                                                    </td>
+                                                )}
                                             </tr>
                                         );
                                     })}

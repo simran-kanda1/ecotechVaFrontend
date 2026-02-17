@@ -1,7 +1,11 @@
 import { Dialog } from "@radix-ui/react-dialog";
-import { X, Calendar, User, MessageSquare, Phone, MapPin, FileText, CheckCircle2, Tag, Mail, Music, BrainCircuit, History, Clock } from "lucide-react";
+import { X, Calendar, User, MessageSquare, Phone, MapPin, FileText, CheckCircle2, Tag, Mail, Music, BrainCircuit, History, Clock, RefreshCw, Loader2, Trash2 } from "lucide-react";
 import { cn } from "../lib/utils";
+import { db } from "../lib/firebase";
+import { addDoc, collection, doc, serverTimestamp, updateDoc, query, where, getDocs, writeBatch } from "firebase/firestore";
 import { format } from "date-fns";
+import { getNextCallbackTime } from "../lib/utils";
+import { useState } from "react";
 
 interface CallDetailModalProps {
     isOpen: boolean;
@@ -11,6 +15,9 @@ interface CallDetailModalProps {
 }
 
 export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity }: CallDetailModalProps) {
+    const [isRequeuing, setIsRequeuing] = useState(false);
+    const [isRemoving, setIsRemoving] = useState(false);
+
     if (!call) return null;
 
     // Robust data extraction to handle various nesting structures
@@ -86,7 +93,103 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity }: Ca
     const formatProducts = (products: any) => {
         if (!products) return "None specified";
         if (Array.isArray(products)) return products.join(", ");
+        if (Array.isArray(products)) return products.join(", ");
         return products;
+    };
+
+    const handleRequeueCall = async () => {
+        if (!call || !call.id) return;
+        if (!confirm("Are you sure you want to manually re-queue this call for the next available slot?")) return;
+
+        setIsRequeuing(true);
+        try {
+            const nextTime = getNextCallbackTime();
+            const nextAttempt = (callbackAttempt || 0) + 1;
+
+            const leadData = {
+                leadId: call.id,
+                firstName: firstName,
+                lastName: lastName,
+                phone: phone,
+                city: address?.split(',')[1]?.trim() || "",
+                address: address,
+                crmLeadId: crmLeadId || null,
+                retellAgentId: call.retellAgentId || null
+            };
+
+            // 1. Add to scheduledCallbacks
+            const callbackRef = await addDoc(collection(db, "scheduledCallbacks"), {
+                leadId: call.id,
+                scheduledFor: nextTime,
+                attemptNumber: nextAttempt,
+                status: "pending",
+                createdAt: serverTimestamp(),
+                leadData: leadData,
+                lastCallOutcome: "manual_requeue"
+            });
+
+            // 2. Update Lead
+            await updateDoc(doc(db, "leads", call.id), {
+                hasScheduledCallback: true,
+                nextCallbackTime: nextTime,
+                callbackAttemptNumber: nextAttempt,
+                callbackId: callbackRef.id,
+                updatedAt: serverTimestamp()
+            });
+
+            alert(`Callback scheduled for ${format(nextTime, "MMM d, h:mm a")}`);
+            onClose();
+
+        } catch (error) {
+            console.error("Error requeuing call:", error);
+            alert("Failed to schedule callback");
+        } finally {
+            setIsRequeuing(false);
+        }
+    };
+
+    const handleRemoveAllCallbacks = async () => {
+        if (!call || !call.id) return;
+        if (!confirm("Are you sure you want to PERMANENTLY remove all scheduled callbacks for this lead? This will stop the AI from calling them.")) return;
+
+        setIsRemoving(true);
+        try {
+            // 1. Find all pending callbacks
+            const q = query(
+                collection(db, "scheduledCallbacks"),
+                where("leadId", "==", call.id),
+                where("status", "==", "pending")
+            );
+            const snapshot = await getDocs(q);
+
+            const batch = writeBatch(db);
+
+            // Delete them
+            snapshot.forEach((doc) => {
+                batch.delete(doc.ref);
+            });
+
+            // 2. Update Lead to remove callback flags
+            const leadRef = doc(db, "leads", call.id);
+            batch.update(leadRef, {
+                hasScheduledCallback: false,
+                nextCallbackTime: null,
+                callbackAttemptNumber: 0,
+                callbackId: null,
+                updatedAt: serverTimestamp()
+            });
+
+            await batch.commit();
+
+            alert("All scheduled callbacks have been removed.");
+            onClose();
+
+        } catch (error) {
+            console.error("Error removing callbacks:", error);
+            alert("Failed to remove callbacks.");
+        } finally {
+            setIsRemoving(false);
+        }
     };
 
     return (
@@ -307,12 +410,36 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity }: Ca
                                         </div>
                                     )}
 
-                                    {/* CALLBACK INFO */}
                                     <div className="bg-white dark:bg-slate-900 rounded-xl p-6 shadow-sm border border-slate-100 dark:border-slate-800">
-                                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                            <History className="w-4 h-4" />
-                                            Callback Status
-                                        </h4>
+                                        <div className="flex justify-between items-start mb-4">
+                                            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                                <History className="w-4 h-4" />
+                                                Callback Status
+                                            </h4>
+
+                                            <div className="flex items-center gap-2">
+                                                {hasCallbacks && (
+                                                    <button
+                                                        onClick={handleRemoveAllCallbacks}
+                                                        disabled={isRemoving || isRequeuing}
+                                                        className="text-xs bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 px-3 py-1.5 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                                                        title="Remove all pending callbacks"
+                                                    >
+                                                        {isRemoving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                                                        Remove
+                                                    </button>
+                                                )}
+
+                                                <button
+                                                    onClick={handleRequeueCall}
+                                                    disabled={isRequeuing || isRemoving}
+                                                    className="text-xs bg-royal-100 dark:bg-royal-900/30 text-royal-700 dark:text-royal-300 px-3 py-1.5 rounded-lg hover:bg-royal-200 dark:hover:bg-royal-900/50 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                                                >
+                                                    {isRequeuing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                                                    Re-queue Call
+                                                </button>
+                                            </div>
+                                        </div>
 
                                         {hasCallbacks ? (
                                             <div className="bg-sky-50 dark:bg-sky-900/10 rounded-lg p-4 border border-sky-100 dark:border-sky-800">

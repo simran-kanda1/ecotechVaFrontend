@@ -167,7 +167,8 @@ export default function Dashboard() {
             items = scheduledCallbacks.filter((call) => {
                 const scheduledFor = call.scheduledFor || call.nextCallbackTime || call.custom_analysis_data?.nextCallbackTime;
                 if (!scheduledFor) return false;
-                return call.status === 'pending';
+                let date = scheduledFor?.seconds ? new Date(scheduledFor.seconds * 1000) : new Date(scheduledFor);
+                return call.status === 'pending' && isAfter(date, new Date());
             }).sort((a, b) => {
                 // Ascending (Next up first)
                 const timeA = a.scheduledFor || a.nextCallbackTime;

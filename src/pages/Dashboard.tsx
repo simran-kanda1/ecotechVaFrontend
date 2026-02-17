@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { collection, query, getDocs, orderBy, limit, deleteDoc, doc } from "firebase/firestore";
+import { collection, query, getDocs, orderBy, limit, deleteDoc, doc, where } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { Header } from "../components/Header";
 import { AddLeadModal } from "../components/AddLeadModal";
@@ -79,7 +79,8 @@ export default function Dashboard() {
                 // 2. Fetch SCHEDULED CALLBACKS
                 // fetch without ordering first to avoid index errors, then sort client-side
                 const callbacksRef = collection(db, "scheduledCallbacks");
-                const qCallbacks = query(callbacksRef, limit(1000));
+                // Filter by pending status to ensure we get active callbacks even if there are many completed ones
+                const qCallbacks = query(callbacksRef, where("status", "==", "pending"), limit(2000));
 
                 let fetchedCallbacks: Call[] = [];
                 try {

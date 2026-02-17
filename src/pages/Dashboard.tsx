@@ -59,7 +59,7 @@ export default function Dashboard() {
                 // 1. Fetch LEADS (Opportunities)
                 // Fetching a larger batch to handle client-side filtering comfortably 
                 const leadsRef = collection(db, "leads");
-                const qLeads = query(leadsRef, orderBy("receivedAt", "desc"), limit(1000));
+                const qLeads = query(leadsRef, orderBy("receivedAt", "desc"), limit(3000));
 
                 let fetchedLeads: Call[] = [];
                 try {

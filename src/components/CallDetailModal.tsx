@@ -357,6 +357,58 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
                                     </div>
 
                                     {/* Transcript */}
+
+                                    {/* STATUS COMMENTS */}
+                                    <div className="bg-white dark:bg-slate-900 rounded-xl p-6 shadow-sm border border-slate-100 dark:border-slate-800">
+                                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                            <MessageSquarePlus className="w-4 h-4 text-royal-600" />
+                                            Status Comments
+                                        </h4>
+
+                                        {/* Comment List */}
+                                        {comments.length > 0 && (
+                                            <div className="space-y-3 mb-4 max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
+                                                {comments.map((comment: any, idx: number) => (
+                                                    <div key={idx} className="bg-slate-50 dark:bg-slate-800 p-3 rounded-lg text-sm border border-slate-100 dark:border-slate-700">
+                                                        <p className="text-slate-700 dark:text-slate-300 mb-2 whitespace-pre-wrap">{comment.text}</p>
+                                                        <div className="flex justify-between items-center pt-1 border-t border-slate-200 dark:border-slate-700/50">
+                                                            <div className="flex items-center gap-1.5">
+                                                                <div className="w-4 h-4 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center">
+                                                                    <User className="w-2.5 h-2.5 text-slate-500" />
+                                                                </div>
+                                                                <span className="text-[10px] text-slate-500 font-medium">{comment.author || 'System'}</span>
+                                                            </div>
+                                                            <span className="text-[10px] text-slate-400">
+                                                                {comment.createdAt ? format(new Date(comment.createdAt), "MMM d, h:mm a") : ""}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {/* Add Comment Input */}
+                                        <div className="flex flex-col gap-2 bg-slate-50/50 dark:bg-slate-800/20 p-1 rounded-xl">
+                                            <textarea
+                                                value={statusComment}
+                                                onChange={(e) => setStatusComment(e.target.value)}
+                                                placeholder="Add a note..."
+                                                className="w-full text-sm p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:ring-1 focus:ring-royal-500 outline-none resize-none min-h-[60px]"
+                                            />
+                                            <div className="flex justify-end p-1">
+                                                <button
+                                                    onClick={handleAddComment}
+                                                    disabled={!statusComment.trim() || isAddingComment}
+                                                    className="px-3 py-1.5 bg-royal-600 hover:bg-royal-700 text-white text-xs font-medium rounded-lg flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                                                >
+                                                    {isAddingComment ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                                                    Post
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Transcript Component */}
                                     <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col h-[500px]">
                                         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex justify-between items-center shrink-0">
                                             <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
@@ -486,50 +538,7 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
                                         </div>
                                     </div>
 
-                                    {/* STATUS COMMENTS */}
-                                    <div className="bg-white dark:bg-slate-900 rounded-xl p-6 shadow-sm border border-slate-100 dark:border-slate-800">
-                                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                            <MessageSquarePlus className="w-4 h-4" />
-                                            Status Comments
-                                        </h4>
 
-                                        {/* Comment List */}
-                                        {comments.length > 0 && (
-                                            <div className="space-y-3 mb-4 max-h-[200px] overflow-y-auto pr-2">
-                                                {comments.map((comment: any, idx: number) => (
-                                                    <div key={idx} className="bg-slate-50 dark:bg-slate-800 p-3 rounded-lg text-sm">
-                                                        <p className="text-slate-700 dark:text-slate-300 mb-1.5">{comment.text}</p>
-                                                        <div className="flex justify-between items-center">
-                                                            <span className="text-[10px] text-slate-400 font-medium">{comment.author || 'System'}</span>
-                                                            <span className="text-[10px] text-slate-400">
-                                                                {comment.createdAt ? format(new Date(comment.createdAt), "MMM d, h:mm a") : ""}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-
-                                        {/* Add Comment Input */}
-                                        <div className="flex flex-col gap-2">
-                                            <textarea
-                                                value={statusComment}
-                                                onChange={(e) => setStatusComment(e.target.value)}
-                                                placeholder="Add a note without changing status..."
-                                                className="w-full text-sm p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 focus:ring-1 focus:ring-royal-500 outline-none resize-none min-h-[80px]"
-                                            />
-                                            <div className="flex justify-end">
-                                                <button
-                                                    onClick={handleAddComment}
-                                                    disabled={!statusComment.trim() || isAddingComment}
-                                                    className="px-4 py-2 bg-royal-600 hover:bg-royal-700 text-white text-xs font-medium rounded-lg flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                                >
-                                                    {isAddingComment ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
-                                                    Add Note
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
 
                                     {/* APPOINTMENT STATUS */}
                                     {customData.appointmentBooked ? (

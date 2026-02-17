@@ -5,7 +5,7 @@ import { Header } from "../components/Header";
 import { AddLeadModal } from "../components/AddLeadModal";
 import { CallDetailModal } from "../components/CallDetailModal";
 import { Loader2, PhoneIncoming, CheckCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Phone, Clock, User, Plus, Search, Trash2 } from "lucide-react";
-import { format, isAfter, isBefore, subMonths, addMonths, startOfDay } from "date-fns";
+import { format, isAfter, isBefore, subMonths, addMonths } from "date-fns";
 import { cn } from "../lib/utils";
 import { MOCK_CALLS } from "../data/mock-data";
 import { fetchRetellCalls, ECOTECH_NUMBER } from "../lib/retell";
@@ -80,7 +80,7 @@ export default function Dashboard() {
                 // fetch without ordering first to avoid index errors, then sort client-side
                 const callbacksRef = collection(db, "scheduledCallbacks");
                 // Filter by pending status to ensure we get active callbacks even if there are many completed ones
-                const qCallbacks = query(callbacksRef, where("status", "==", "pending"), limit(2000));
+                const qCallbacks = query(callbacksRef, where("status", "==", "pending"), limit(4000));
 
                 let fetchedCallbacks: Call[] = [];
                 try {

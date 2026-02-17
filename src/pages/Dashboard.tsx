@@ -263,6 +263,17 @@ export default function Dashboard() {
         }
     };
 
+    const handleLeadUpdate = (leadId: string, updates: any) => {
+        setLeads(prev => prev.map(lead =>
+            lead.id === leadId ? { ...lead, ...updates } : lead
+        ));
+
+        // Also update scheduledCallbacks if relevant (e.g. if we display urgency there too)
+        setScheduledCallbacks(prev => prev.map(cb =>
+            cb.leadId === leadId || cb.id === leadId ? { ...cb, ...updates } : cb
+        ));
+    };
+
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950 font-sans text-slate-900 dark:text-slate-100">
             <Header />
@@ -555,7 +566,7 @@ export default function Dashboard() {
                                         // Check for urgent (Booked but missing CRM Lead ID OR Negative Sentiment)
                                         const hasCrmId = call.crmLeadId || customData.crmLeadId;
                                         const sentiment = (customData.user_sentiment || call.callAnalysis?.user_sentiment || "").toLowerCase();
-                                        const isUrgent = (isBooked && !hasCrmId) || sentiment === 'negative';
+                                        const isUrgent = (isBooked && !hasCrmId) || sentiment === 'negative' || call.isUrgent === true;
 
                                         return (
                                             <tr
@@ -728,6 +739,7 @@ export default function Dashboard() {
                 onClose={() => setSelectedCall(null)}
                 call={selectedCall}
                 onViewOpportunity={activeTab === 'logs' ? handleViewOpportunity : undefined}
+                onLeadUpdate={handleLeadUpdate}
             />
 
             <AddLeadModal

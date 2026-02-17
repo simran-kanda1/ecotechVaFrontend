@@ -1,22 +1,37 @@
 import { Dialog } from "@radix-ui/react-dialog";
-import { X, Calendar, User, MessageSquare, Phone, MapPin, FileText, CheckCircle2, Tag, Mail, Music, BrainCircuit, History, Clock, RefreshCw, Loader2, Trash2 } from "lucide-react";
+import { X, Calendar, User, MessageSquare, Phone, MapPin, FileText, CheckCircle2, Tag, Mail, Music, BrainCircuit, History, Clock, RefreshCw, Loader2, Trash2, AlertTriangle, Save, MessageSquarePlus, Send } from "lucide-react";
 import { cn } from "../lib/utils";
 import { db } from "../lib/firebase";
-import { addDoc, collection, doc, serverTimestamp, updateDoc, query, where, getDocs, writeBatch } from "firebase/firestore";
+import { addDoc, collection, doc, serverTimestamp, updateDoc, query, where, getDocs, writeBatch, arrayUnion } from "firebase/firestore";
 import { format } from "date-fns";
 import { getNextCallbackTime } from "../lib/utils";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface CallDetailModalProps {
     isOpen: boolean;
     onClose: () => void;
     call: any;
     onViewOpportunity?: (call: any) => void;
+    onLeadUpdate?: (leadId: string, data: any) => void;
 }
 
-export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity }: CallDetailModalProps) {
+export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLeadUpdate }: CallDetailModalProps) {
     const [isRequeuing, setIsRequeuing] = useState(false);
     const [isRemoving, setIsRemoving] = useState(false);
+    const [isUrgent, setIsUrgent] = useState(false);
+    const [urgentReason, setUrgentReason] = useState("");
+    const [isSavingUrgency, setIsSavingUrgency] = useState(false);
+
+    // Status Comment State
+    const [statusComment, setStatusComment] = useState("");
+    const [isAddingComment, setIsAddingComment] = useState(false);
+
+    useEffect(() => {
+        if (call) {
+            setIsUrgent(call.isUrgent || false);
+            setUrgentReason(call.urgentReason || "");
+        }
+    }, [call]);
 
     if (!call) return null;
 
@@ -192,6 +207,66 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity }: Ca
         }
     };
 
+    const handleSaveUrgency = async () => {
+        if (!call || !call.id) return;
+
+        setIsSavingUrgency(true);
+        try {
+            await updateDoc(doc(db, "leads", call.id), {
+                isUrgent: isUrgent,
+                urgentReason: urgentReason,
+                updatedAt: serverTimestamp()
+            });
+            // Update local object if possible to reflect immediately in UI if parent doesn't re-render entirely
+            call.isUrgent = isUrgent;
+            call.urgentReason = urgentReason;
+
+            if (onLeadUpdate) {
+                onLeadUpdate(call.id, { isUrgent, urgentReason });
+            }
+
+            alert("Urgency status updated successfully.");
+        } catch (error) {
+            console.error("Error updating urgency:", error);
+            alert("Failed to update status.");
+        } finally {
+            setIsSavingUrgency(false);
+        }
+    };
+
+    const handleAddComment = async () => {
+        if (!call || !call.id || !statusComment.trim()) return;
+
+        setIsAddingComment(true);
+        try {
+            const newComment = {
+                text: statusComment,
+                createdAt: new Date().toISOString(),
+                author: "User" // You could replace with actual user if auth is available
+            };
+
+            await updateDoc(doc(db, "leads", call.id), {
+                comments: arrayUnion(newComment),
+                updatedAt: serverTimestamp()
+            });
+
+            // Optimistic update of local call object
+            if (!call.comments) call.comments = [];
+            call.comments.push(newComment);
+
+            setStatusComment(""); // Clear input
+            alert("Comment added successfully.");
+        } catch (error) {
+            console.error("Error adding comment:", error);
+            alert("Failed to add comment.");
+        } finally {
+            setIsAddingComment(false);
+        }
+    };
+
+    // Extract existing comments
+    const comments = call.comments || [];
+
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
             {isOpen && (
@@ -303,6 +378,53 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity }: Ca
                                     <div className="bg-white dark:bg-slate-900 rounded-xl p-6 shadow-sm border border-slate-100 dark:border-slate-800">
                                         <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Lead Details</h4>
 
+                                        {/* URGENCY CONTROL */}
+                                        <div className="mb-6 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-100 dark:border-slate-800">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <div className="flex items-center gap-2">
+                                                    <AlertTriangle className={cn("w-4 h-4", isUrgent ? "text-blue-600" : "text-slate-400")} />
+                                                    <span className={cn("text-sm font-medium", isUrgent ? "text-blue-700" : "text-slate-600")}>
+                                                        Mark as Urgent
+                                                    </span>
+                                                </div>
+                                                <button
+                                                    onClick={() => setIsUrgent(!isUrgent)}
+                                                    className={cn(
+                                                        "relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2",
+                                                        isUrgent ? "bg-blue-600" : "bg-slate-200"
+                                                    )}
+                                                >
+                                                    <span className={cn(
+                                                        "inline-block h-3 w-3 transform rounded-full bg-white transition-transform",
+                                                        isUrgent ? "translate-x-5" : "translate-x-1"
+                                                    )} />
+                                                </button>
+                                            </div>
+
+                                            {isUrgent && (
+                                                <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
+                                                    <div>
+                                                        <label className="text-xs font-semibold text-slate-500 mb-1 block">Urgent Reason</label>
+                                                        <textarea
+                                                            value={urgentReason}
+                                                            onChange={(e) => setUrgentReason(e.target.value)}
+                                                            className="w-full text-sm p-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:ring-1 focus:ring-blue-500 outline-none resize-none"
+                                                            rows={2}
+                                                            placeholder="Why is this urgent?"
+                                                        />
+                                                    </div>
+                                                    <button
+                                                        onClick={handleSaveUrgency}
+                                                        disabled={isSavingUrgency}
+                                                        className="w-full py-1.5 px-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded flex items-center justify-center gap-2 transition-colors disabled:opacity-70"
+                                                    >
+                                                        {isSavingUrgency ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                                                        Save Urgency
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+
                                         <div className="space-y-4">
                                             {/* Region */}
                                             <div className="flex justify-between items-center py-2 border-b border-slate-50 dark:border-slate-800/50">
@@ -361,6 +483,51 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity }: Ca
                                                     </button>
                                                 </div>
                                             )}
+                                        </div>
+                                    </div>
+
+                                    {/* STATUS COMMENTS */}
+                                    <div className="bg-white dark:bg-slate-900 rounded-xl p-6 shadow-sm border border-slate-100 dark:border-slate-800">
+                                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                            <MessageSquarePlus className="w-4 h-4" />
+                                            Status Comments
+                                        </h4>
+
+                                        {/* Comment List */}
+                                        {comments.length > 0 && (
+                                            <div className="space-y-3 mb-4 max-h-[200px] overflow-y-auto pr-2">
+                                                {comments.map((comment: any, idx: number) => (
+                                                    <div key={idx} className="bg-slate-50 dark:bg-slate-800 p-3 rounded-lg text-sm">
+                                                        <p className="text-slate-700 dark:text-slate-300 mb-1.5">{comment.text}</p>
+                                                        <div className="flex justify-between items-center">
+                                                            <span className="text-[10px] text-slate-400 font-medium">{comment.author || 'System'}</span>
+                                                            <span className="text-[10px] text-slate-400">
+                                                                {comment.createdAt ? format(new Date(comment.createdAt), "MMM d, h:mm a") : ""}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {/* Add Comment Input */}
+                                        <div className="flex flex-col gap-2">
+                                            <textarea
+                                                value={statusComment}
+                                                onChange={(e) => setStatusComment(e.target.value)}
+                                                placeholder="Add a note without changing status..."
+                                                className="w-full text-sm p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 focus:ring-1 focus:ring-royal-500 outline-none resize-none min-h-[80px]"
+                                            />
+                                            <div className="flex justify-end">
+                                                <button
+                                                    onClick={handleAddComment}
+                                                    disabled={!statusComment.trim() || isAddingComment}
+                                                    className="px-4 py-2 bg-royal-600 hover:bg-royal-700 text-white text-xs font-medium rounded-lg flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                >
+                                                    {isAddingComment ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                                                    Add Note
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
 

@@ -72,7 +72,7 @@ export function getNextCallbackTime(): Date {
         const [datePart, timePart] = checkString.split(', ');
         if (!datePart || !timePart) break;
 
-        const [m, d, y] = datePart.split('/').map(Number);
+
         const [h, min] = timePart.split(':').map(Number);
 
         const producedTimeVal = h * 60 + min;

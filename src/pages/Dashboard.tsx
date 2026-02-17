@@ -167,10 +167,7 @@ export default function Dashboard() {
             items = scheduledCallbacks.filter((call) => {
                 const scheduledFor = call.scheduledFor || call.nextCallbackTime || call.custom_analysis_data?.nextCallbackTime;
                 if (!scheduledFor) return false;
-                let date = scheduledFor?.seconds ? new Date(scheduledFor.seconds * 1000) : new Date(scheduledFor);
-                // Show current date and onwards (exclude past days)
-                const startOfToday = startOfDay(new Date());
-                return !isBefore(date, startOfToday) && call.status === 'pending';
+                return call.status === 'pending';
             }).sort((a, b) => {
                 // Ascending (Next up first)
                 const timeA = a.scheduledFor || a.nextCallbackTime;

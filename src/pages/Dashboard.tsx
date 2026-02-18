@@ -123,7 +123,7 @@ export default function Dashboard() {
     useEffect(() => {
         if (activeTab === 'logs' && retellLogs.length === 0) {
             setLoading(true);
-            fetchRetellCalls(5000) // Increase limit to ensure we capture the full month
+            fetchRetellCalls(7000) // Increase limit to ensure we capture the full month
                 .then(calls => {
                     // Filter by from_number (ECOTECH_NUMBER) and map
                     const logs = calls

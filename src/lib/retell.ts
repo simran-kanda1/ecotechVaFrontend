@@ -30,7 +30,10 @@ export interface RetellCall {
     // Add other fields as needed
 }
 
-export async function fetchRetellCalls(limit = 5000): Promise<RetellCall[]> {
+export async function fetchRetellCalls(
+    limit = 5000,
+    filterCriteria?: { after_start_timestamp?: number; before_start_timestamp?: number }
+): Promise<RetellCall[]> {
     if (!apiKey) {
         console.error("Retell API Key is missing");
         return [];
@@ -57,8 +60,7 @@ export async function fetchRetellCalls(limit = 5000): Promise<RetellCall[]> {
                 body: JSON.stringify({
                     limit: fetchLimit,
                     pagination_key: paginationKey,
-                    // optimization: filter by date if possible, but Retell doesn't support simple date param in top level, 
-                    // only via filter_criteria which is complex. For now, fetch all chronological.
+                    filter_criteria: filterCriteria,
                     sort_order: 'descending' // Default is descending, making sure we get latest first
                 })
             });

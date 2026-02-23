@@ -34,6 +34,7 @@ export default function Dashboard() {
 
     // Retell Logs State
     const [retellLogs, setRetellLogs] = useState<any[]>([]);
+    const [lastRetellFetchStart, setLastRetellFetchStart] = useState<number | null>(null);
 
     // Helper to calculate billing cycle range
     const getBillingCycle = (date: Date) => {
@@ -121,9 +122,13 @@ export default function Dashboard() {
 
     // Fetch Retell Logs
     useEffect(() => {
-        if (activeTab === 'logs' && retellLogs.length === 0) {
+        if (activeTab === 'logs' && lastRetellFetchStart !== start.getTime()) {
             setLoading(true);
-            fetchRetellCalls(7000) // Increase limit to ensure we capture the full month
+            setLastRetellFetchStart(start.getTime());
+            fetchRetellCalls(5000, {
+                after_start_timestamp: start.getTime(),
+                before_start_timestamp: end.getTime()
+            })
                 .then(calls => {
                     // Filter by from_number (ECOTECH_NUMBER) and map
                     const logs = calls
@@ -150,7 +155,7 @@ export default function Dashboard() {
                 .catch(err => console.error("Failed to fetch retell logs", err))
                 .finally(() => setLoading(false));
         }
-    }, [activeTab]);
+    }, [activeTab, start, end, lastRetellFetchStart]);
 
     // Filter Logic based on Active Tab
     const filteredItems = (() => {

@@ -322,9 +322,16 @@ export default function Dashboard() {
                             </div>
                             <div>
                                 <p className="text-xs text-slate-400 font-semibold uppercase">{activeTab === 'logs' ? 'Total Calls' : activeTab === 'scheduled' ? 'Scheduled' : 'Total Opportunities'}</p>
-                                <p className="text-lg font-bold">
-                                    {activeTab === 'logs' ? filteredItems.length : activeTab === 'scheduled' ? filteredItems.length : leads.length}
-                                </p>
+                                <div className="flex items-center gap-2">
+                                    <p className="text-lg font-bold">
+                                        {activeTab === 'logs' ? filteredItems.length : activeTab === 'scheduled' ? filteredItems.length : leads.length}
+                                    </p>
+                                    {activeTab === 'opportunities' && (
+                                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-900/30 px-2 py-0.5 rounded-full whitespace-nowrap">
+                                            +{filteredItems.length} this cycle
+                                        </span>
+                                    )}
+                                </div>
                             </div>
                         </div>
                         <div className="bg-white dark:bg-slate-900 px-5 py-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-3">

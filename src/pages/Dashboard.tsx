@@ -16,11 +16,62 @@ type Call = any;
 
 const ITEMS_PER_PAGE = 50;
 
+const getOpportunityColor = (call: any) => {
+    const customData = call.custom_analysis_data || {};
+    const isBooked = customData.appointmentBooked || call.appointmentBooked;
+    const nextCallbackTimeRaw = call.scheduledFor || call.nextCallbackTime || customData.nextCallbackTime;
+    const nextCallbackDate = nextCallbackTimeRaw?.seconds ? new Date(nextCallbackTimeRaw.seconds * 1000) : (nextCallbackTimeRaw ? new Date(nextCallbackTimeRaw) : null);
+    const isFutureCallback = nextCallbackDate && isAfter(nextCallbackDate, new Date());
+
+    const outcome = (call.callOutcome || customData.callOutcome || "unknown").toLowerCase();
+    const status = (call.callStatus || "unknown").toLowerCase();
+
+    const isOrangeCondition =
+        call.callStatus === 'follow_up' ||
+        isFutureCallback ||
+        outcome === 'voicemail' ||
+        outcome === 'no_answer' ||
+        outcome === 'not_connected' ||
+        outcome === 'unsuccessful' ||
+        outcome === 'unknown' ||
+        status === 'unknown' ||
+        customData.in_voicemail === true ||
+        call.in_voicemail === true;
+
+    const isSupplyOnly = call.customAnalysisDataRaw?.status === 'Supply Only';
+    const isDeadLead = call.callStatus === 'dead' || outcome === 'not_interested' || outcome === 'dnc';
+
+    const hasCrmId = call.crmLeadId || customData.crmLeadId;
+    const sentiment = (customData.user_sentiment || call.callAnalysis?.user_sentiment || "").toLowerCase();
+    const isUrgent = (isBooked && !hasCrmId) || sentiment === 'negative' || call.isUrgent === true;
+
+    if (isUrgent) return 'blue';
+    if (isBooked) return 'green';
+    if (isDeadLead) return 'red';
+    if (isSupplyOnly) return 'purple';
+    if (call.callStatus === 'scheduled_outside_hours' || call.callStatus === 'registered') return 'yellow';
+    if (isOrangeCondition) return 'orange';
+    return 'white';
+};
+
+const getRowBackgroundColor = (color: string) => {
+    switch (color) {
+        case 'blue': return "bg-blue-200/80 dark:bg-blue-900/50 hover:bg-blue-300/80 dark:hover:bg-blue-800/60";
+        case 'green': return "bg-green-200/80 dark:bg-green-900/50 hover:bg-green-300/80 dark:hover:bg-green-800/60";
+        case 'red': return "bg-red-100/70 dark:bg-red-900/30 hover:bg-red-200/70 dark:hover:bg-red-900/50";
+        case 'purple': return "bg-purple-100/70 dark:bg-purple-900/30 hover:bg-purple-200/70 dark:hover:bg-purple-900/50";
+        case 'yellow': return "bg-yellow-100/70 dark:bg-yellow-900/30 hover:bg-yellow-200/70 dark:hover:bg-yellow-900/50";
+        case 'orange': return "bg-orange-200/80 dark:bg-orange-900/50 hover:bg-orange-300/80 dark:hover:bg-orange-800/60";
+        case 'white': default: return "hover:bg-blue-50/30 dark:hover:bg-blue-900/10";
+    }
+};
+
 export default function Dashboard() {
     const [activeTab, setActiveTab] = useState<'opportunities' | 'scheduled' | 'logs'>('opportunities');
     const [leads, setLeads] = useState<Call[]>([]);
     const [scheduledCallbacks, setScheduledCallbacks] = useState<Call[]>([]);
     const [searchQuery, setSearchQuery] = useState("");
+    const [colorFilter, setColorFilter] = useState("all");
 
     const [loading, setLoading] = useState(true);
     const [selectedCall, setSelectedCall] = useState<Call | null>(null);
@@ -251,6 +302,11 @@ export default function Dashboard() {
             });
         }
 
+        // Apply Color Filter (Opportunities only)
+        if (activeTab === 'opportunities' && colorFilter !== 'all') {
+            items = items.filter(item => getOpportunityColor(item) === colorFilter);
+        }
+
         return items;
     })();
 
@@ -440,6 +496,24 @@ export default function Dashboard() {
                         </div>
 
                         <div className="flex items-center gap-4">
+                            {/* Color Filter (Opportunities Only) */}
+                            {activeTab === 'opportunities' && (
+                                <select
+                                    value={colorFilter}
+                                    onChange={(e) => { setColorFilter(e.target.value); setCurrentPage(1); }}
+                                    className="py-1.5 pl-3 pr-8 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-royal-500/20"
+                                >
+                                    <option value="all">All Colors</option>
+                                    <option value="blue">Blue (Urgent)</option>
+                                    <option value="green">Green (Booked)</option>
+                                    <option value="red">Red (Dead Lead)</option>
+                                    <option value="purple">Purple (Supply Only)</option>
+                                    <option value="orange">Orange (Follow-up)</option>
+                                    <option value="yellow">Yellow (Outside Hours)</option>
+                                    <option value="white">White (Answered)</option>
+                                </select>
+                            )}
+
                             {/* Search Bar */}
                             <div className="relative w-full sm:w-auto">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -605,30 +679,7 @@ export default function Dashboard() {
                                         const nextCallbackDate = nextCallbackTimeRaw?.seconds ? new Date(nextCallbackTimeRaw.seconds * 1000) : (nextCallbackTimeRaw ? new Date(nextCallbackTimeRaw) : null);
                                         const isFutureCallback = nextCallbackDate && isAfter(nextCallbackDate, new Date());
 
-                                        // Check for no contact / voicemail / follow up needs
-                                        const outcome = (call.callOutcome || customData.callOutcome || "unknown").toLowerCase();
-                                        const status = (call.callStatus || "unknown").toLowerCase();
-
-                                        const isOrangeCondition =
-                                            call.callStatus === 'follow_up' ||
-                                            isFutureCallback ||
-                                            outcome === 'voicemail' ||
-                                            outcome === 'no_answer' ||
-                                            outcome === 'not_connected' ||
-                                            outcome === 'unsuccessful' ||
-                                            outcome === 'unknown' ||
-                                            status === 'unknown' ||
-                                            customData.in_voicemail === true ||
-                                            call.in_voicemail === true;
-
-
-                                        const isSupplyOnly = call.customAnalysisDataRaw?.status === 'Supply Only';
-                                        const isDeadLead = call.callStatus === 'dead' || outcome === 'not_interested' || outcome === 'dnc';
-
-                                        // Check for urgent (Booked but missing CRM Lead ID OR Negative Sentiment)
-                                        const hasCrmId = call.crmLeadId || customData.crmLeadId;
-                                        const sentiment = (customData.user_sentiment || call.callAnalysis?.user_sentiment || "").toLowerCase();
-                                        const isUrgent = (isBooked && !hasCrmId) || sentiment === 'negative' || call.isUrgent === true;
+                                        const rowColor = getOpportunityColor(call);
 
                                         return (
                                             <tr
@@ -636,21 +687,7 @@ export default function Dashboard() {
                                                 onClick={() => setSelectedCall(enrichedCall)}
                                                 className={cn(
                                                     "group cursor-pointer transition-all duration-200",
-                                                    isUrgent
-                                                        ? "bg-blue-200/80 dark:bg-blue-900/50 hover:bg-blue-300/80 dark:hover:bg-blue-800/60"
-                                                        : isBooked
-                                                            ? "bg-green-200/80 dark:bg-green-900/50 hover:bg-green-300/80 dark:hover:bg-green-800/60"
-
-                                                            : isDeadLead
-                                                                ? "bg-red-100/70 dark:bg-red-900/30 hover:bg-red-200/70 dark:hover:bg-red-900/50"
-                                                                : isSupplyOnly
-                                                                    ? "bg-purple-100/70 dark:bg-purple-900/30 hover:bg-purple-200/70 dark:hover:bg-purple-900/50"
-                                                                    : (call.callStatus === 'scheduled_outside_hours' || call.callStatus === 'registered')
-                                                                        ? "bg-yellow-100/70 dark:bg-yellow-900/30 hover:bg-yellow-200/70 dark:hover:bg-yellow-900/50"
-                                                                        : isOrangeCondition
-
-                                                                            ? "bg-orange-200/80 dark:bg-orange-900/50 hover:bg-orange-300/80 dark:hover:bg-orange-800/60"
-                                                                            : "hover:bg-blue-50/30 dark:hover:bg-blue-900/10"
+                                                    getRowBackgroundColor(rowColor)
                                                 )}
                                             >
                                                 {/* Date Block */}

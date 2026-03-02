@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../lib/firebase";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { Loader2, Mail, Lock } from "lucide-react";
 import { Button } from "../components/ui-components";
 
@@ -80,6 +80,9 @@ export default function Login() {
                                 <label className="text-sm font-medium leading-none text-slate-700 dark:text-slate-200" htmlFor="password">
                                     Password
                                 </label>
+                                <Link to="/forgot-password" className="text-xs font-semibold text-royal-600 hover:text-royal-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-royal-600 focus-visible:ring-offset-2 rounded px-1 transition-colors">
+                                    Forgot password?
+                                </Link>
                             </div>
                             <div className="relative">
                                 <Lock className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />

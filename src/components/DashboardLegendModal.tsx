@@ -1,6 +1,5 @@
 import { Dialog } from "@radix-ui/react-dialog";
-import { Info, X, Clock, Calendar, CheckCircle } from "lucide-react";
-import { Button } from "./ui-components";
+import { Info, X, Clock, Calendar } from "lucide-react";
 
 interface DashboardLegendModalProps {
     isOpen: boolean;

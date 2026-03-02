@@ -1,6 +1,6 @@
 import { useNavigate, Link, useLocation } from "react-router-dom";
 import { auth } from "../lib/firebase";
-import { LogOut, LayoutDashboard, BarChart3 } from "lucide-react";
+import { LogOut, LayoutDashboard, BarChart3, Activity } from "lucide-react";
 import { cn } from "../lib/utils";
 
 export function Header() {
@@ -74,6 +74,18 @@ export function Header() {
                             >
                                 <BarChart3 className="w-4 h-4" />
                                 Analytics
+                            </Link>
+                            <Link
+                                to="/activity"
+                                className={cn(
+                                    "px-3 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2",
+                                    location.pathname === "/activity"
+                                        ? "bg-royal-50 text-royal-700 dark:bg-royal-900/20 dark:text-royal-300"
+                                        : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                )}
+                            >
+                                <Activity className="w-4 h-4" />
+                                Activity
                             </Link>
                         </nav>
                     </div>

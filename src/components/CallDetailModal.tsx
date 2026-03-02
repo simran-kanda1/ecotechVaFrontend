@@ -2,11 +2,13 @@ import { Dialog } from "@radix-ui/react-dialog";
 import { X, Calendar, User, MessageSquare, Phone, MapPin, FileText, CheckCircle2, Tag, Mail, Music, BrainCircuit, History, Clock, RefreshCw, Loader2, Trash2, AlertTriangle, Save, MessageSquarePlus, Send } from "lucide-react";
 import { cn } from "../lib/utils";
 import { db } from "../lib/firebase";
-import { addDoc, collection, doc, serverTimestamp, updateDoc, query, where, getDocs, writeBatch, arrayUnion } from "firebase/firestore";
+import { addDoc, collection, doc, serverTimestamp, updateDoc, query, where, getDocs, writeBatch, arrayUnion, deleteDoc } from "firebase/firestore";
 import { format } from "date-fns";
 import { getNextCallbackTime, formatPhoneNumber } from "../lib/utils";
 import { useState, useEffect } from "react";
 import { fetchCallsForNumber } from "../lib/retell";
+import { logActivity } from "../lib/activity-logger";
+import { auth } from "../lib/firebase";
 
 interface CallDetailModalProps {
     isOpen: boolean;
@@ -14,14 +16,16 @@ interface CallDetailModalProps {
     call: any;
     onViewOpportunity?: (call: any) => void;
     onLeadUpdate?: (leadId: string, data: any) => void;
+    onLeadDelete?: (leadId: string) => void;
 }
 
-export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLeadUpdate }: CallDetailModalProps) {
+export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLeadUpdate, onLeadDelete }: CallDetailModalProps) {
     const [isRequeuing, setIsRequeuing] = useState(false);
     const [isRemoving, setIsRemoving] = useState(false);
     const [isUrgent, setIsUrgent] = useState(false);
     const [urgentReason, setUrgentReason] = useState("");
     const [isSavingUrgency, setIsSavingUrgency] = useState(false);
+    const [isDeletingLead, setIsDeletingLead] = useState(false);
 
     // Status Comment State
     const [statusComment, setStatusComment] = useState("");
@@ -168,6 +172,8 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
                 updatedAt: serverTimestamp()
             });
 
+            await logActivity("Requeued Call", `Scheduled next callback for ${format(nextTime, "MMM d, h:mm a")}`, call.id, `${firstName} ${lastName}`);
+
             alert(`Callback scheduled for ${format(nextTime, "MMM d, h:mm a")}`);
             onClose();
 
@@ -212,6 +218,8 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
 
             await batch.commit();
 
+            await logActivity("Removed Callbacks", "Removed all scheduled callbacks", call.id, `${firstName} ${lastName}`);
+
             alert("All scheduled callbacks have been removed.");
             onClose();
 
@@ -220,6 +228,28 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
             alert("Failed to remove callbacks.");
         } finally {
             setIsRemoving(false);
+        }
+    };
+
+    const handleDeleteLead = async () => {
+        if (!call || !call.id) return;
+        if (!confirm("Are you absolutely sure you want to permanently delete this lead? This action cannot be undone.")) return;
+
+        setIsDeletingLead(true);
+        try {
+            await deleteDoc(doc(db, "leads", call.id));
+            await logActivity("Deleted Lead", "Removed an entire lead", call.id, `${firstName} ${lastName}`);
+
+            if (onLeadDelete) {
+                onLeadDelete(call.id);
+            }
+            alert("Lead deleted successfully.");
+            onClose();
+        } catch (error) {
+            console.error("Error deleting lead:", error);
+            alert("Failed to delete lead.");
+        } finally {
+            setIsDeletingLead(false);
         }
     };
 
@@ -241,6 +271,13 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
                 onLeadUpdate(call.id, { isUrgent, urgentReason });
             }
 
+            await logActivity(
+                isUrgent ? "Marked as Urgent" : "Removed Urgent Status",
+                isUrgent ? `Reason: ${urgentReason || "No reason provided"}` : "Cleared urgency flag",
+                call.id,
+                `${firstName} ${lastName}`
+            );
+
             alert("Urgency status updated successfully.");
         } catch (error) {
             console.error("Error updating urgency:", error);
@@ -255,10 +292,11 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
 
         setIsAddingComment(true);
         try {
+            const authorEmail = auth.currentUser?.email || "User";
             const newComment = {
                 text: statusComment,
                 createdAt: new Date().toISOString(),
-                author: "User" // You could replace with actual user if auth is available
+                author: authorEmail
             };
 
             await updateDoc(doc(db, "leads", call.id), {
@@ -269,6 +307,8 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
             // Optimistic update of local call object
             if (!call.comments) call.comments = [];
             call.comments.push(newComment);
+
+            await logActivity("Added Comment", statusComment, call.id, `${firstName} ${lastName}`);
 
             setStatusComment(""); // Clear input
             alert("Comment added successfully.");
@@ -324,14 +364,24 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
                                             </div>
                                         </div>
                                     </div>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={handleDeleteLead}
+                                            disabled={isDeletingLead}
+                                            className="px-3 py-1.5 flex items-center justify-center gap-1.5 rounded-lg border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 font-medium text-xs hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                                        >
+                                            {isDeletingLead ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                                            Delete
+                                        </button>
+                                        <button
+                                            onClick={onClose}
+                                            className="p-2 hover:bg-white/10 rounded-full transition-colors"
+                                        >
+                                            <X className="w-6 h-6 opacity-80" />
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
-                            <button
-                                onClick={onClose}
-                                className="p-2 hover:bg-white/10 rounded-full transition-colors"
-                            >
-                                <X className="w-6 h-6 opacity-80" />
-                            </button>
                         </div>
 
                         {/* Content */}
@@ -661,6 +711,9 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
                                                 href={recordingUrl}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
+                                                onClick={() => {
+                                                    logActivity("Played Recording", "Listened to call recording", call?.id, `${firstName} ${lastName}`);
+                                                }}
                                                 className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-lg bg-royal-600 text-white shadow-md hover:bg-royal-700 transition-all font-medium"
                                             >
                                                 <Music className="w-4 h-4" />

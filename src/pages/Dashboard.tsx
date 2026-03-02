@@ -10,6 +10,7 @@ import { format, isAfter, isBefore, subMonths, addMonths } from "date-fns";
 import { cn, formatPhoneNumber } from "../lib/utils";
 import { MOCK_CALLS } from "../data/mock-data";
 import { fetchRetellCalls, ECOTECH_NUMBER } from "../lib/retell";
+import { logActivity } from "../lib/activity-logger";
 
 // Type definitions
 type Call = any;
@@ -353,8 +354,13 @@ export default function Dashboard() {
         e.stopPropagation(); // Prevent row click
         if (window.confirm("Are you sure you want to remove this customer from the scheduled callback list?")) {
             try {
+                const call = scheduledCallbacks.find(c => c.id === callId);
+                const leadName = call ? `${call.leadData?.firstName || call.firstName || 'Unknown'} ${call.leadData?.lastName || call.lastName || ''}` : 'Unknown';
+
                 await deleteDoc(doc(db, "scheduledCallbacks", callId));
                 setScheduledCallbacks(prev => prev.filter(c => c.id !== callId));
+
+                await logActivity("Removed Callback", "Removed individual scheduled callback from Dashboard", callId, leadName);
             } catch (error) {
                 console.error("Error removing scheduled callback:", error);
                 alert("Failed to remove callback. Please try again.");

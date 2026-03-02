@@ -2,7 +2,7 @@ import { Dialog } from "@radix-ui/react-dialog";
 import { X, Calendar, User, MessageSquare, Phone, MapPin, FileText, CheckCircle2, Tag, Mail, Music, BrainCircuit, History, Clock, RefreshCw, Loader2, Trash2, AlertTriangle, Save, MessageSquarePlus, Send } from "lucide-react";
 import { cn } from "../lib/utils";
 import { db } from "../lib/firebase";
-import { addDoc, collection, doc, serverTimestamp, updateDoc, query, where, getDocs, writeBatch, arrayUnion, deleteDoc } from "firebase/firestore";
+import { addDoc, collection, doc, serverTimestamp, updateDoc, query, where, getDocs, writeBatch, arrayUnion } from "firebase/firestore";
 import { format } from "date-fns";
 import { getNextCallbackTime, formatPhoneNumber } from "../lib/utils";
 import { useState, useEffect } from "react";
@@ -16,16 +16,14 @@ interface CallDetailModalProps {
     call: any;
     onViewOpportunity?: (call: any) => void;
     onLeadUpdate?: (leadId: string, data: any) => void;
-    onLeadDelete?: (leadId: string) => void;
 }
 
-export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLeadUpdate, onLeadDelete }: CallDetailModalProps) {
+export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLeadUpdate }: CallDetailModalProps) {
     const [isRequeuing, setIsRequeuing] = useState(false);
     const [isRemoving, setIsRemoving] = useState(false);
     const [isUrgent, setIsUrgent] = useState(false);
     const [urgentReason, setUrgentReason] = useState("");
     const [isSavingUrgency, setIsSavingUrgency] = useState(false);
-    const [isDeletingLead, setIsDeletingLead] = useState(false);
 
     // Status Comment State
     const [statusComment, setStatusComment] = useState("");
@@ -231,28 +229,6 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
         }
     };
 
-    const handleDeleteLead = async () => {
-        if (!call || !call.id) return;
-        if (!confirm("Are you absolutely sure you want to permanently delete this lead? This action cannot be undone.")) return;
-
-        setIsDeletingLead(true);
-        try {
-            await deleteDoc(doc(db, "leads", call.id));
-            await logActivity("Deleted Lead", "Removed an entire lead", call.id, `${firstName} ${lastName}`);
-
-            if (onLeadDelete) {
-                onLeadDelete(call.id);
-            }
-            alert("Lead deleted successfully.");
-            onClose();
-        } catch (error) {
-            console.error("Error deleting lead:", error);
-            alert("Failed to delete lead.");
-        } finally {
-            setIsDeletingLead(false);
-        }
-    };
-
     const handleSaveUrgency = async () => {
         if (!call || !call.id) return;
 
@@ -364,22 +340,12 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="flex gap-2">
-                                        <button
-                                            onClick={handleDeleteLead}
-                                            disabled={isDeletingLead}
-                                            className="px-3 py-1.5 flex items-center justify-center gap-1.5 rounded-lg border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 font-medium text-xs hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                                        >
-                                            {isDeletingLead ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                                            Delete
-                                        </button>
-                                        <button
-                                            onClick={onClose}
-                                            className="p-2 hover:bg-white/10 rounded-full transition-colors"
-                                        >
-                                            <X className="w-6 h-6 opacity-80" />
-                                        </button>
-                                    </div>
+                                    <button
+                                        onClick={onClose}
+                                        className="p-2 hover:bg-white/10 rounded-full transition-colors"
+                                    >
+                                        <X className="w-6 h-6 opacity-80" />
+                                    </button>
                                 </div>
                             </div>
                         </div>

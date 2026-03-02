@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
-import { verifyPasswordResetCode, confirmPasswordReset } from "firebase/auth";
+import { verifyPasswordResetCode, confirmPasswordReset, applyActionCode } from "firebase/auth";
 import { auth } from "../lib/firebase";
 import { Loader2, Lock, CheckCircle2, AlertCircle, ArrowLeft } from "lucide-react";
 import { Button } from "../components/ui-components";
@@ -36,6 +36,17 @@ export default function AuthAction() {
                 .catch((err) => {
                     console.error(err);
                     setError("The password reset link is invalid or has expired.");
+                    setLoading(false);
+                });
+        } else if (mode === "verifyEmail") {
+            applyActionCode(auth, oobCode)
+                .then(() => {
+                    setSuccess(true);
+                    setLoading(false);
+                })
+                .catch((err) => {
+                    console.error(err);
+                    setError("The email verification link is invalid or has expired.");
                     setLoading(false);
                 });
         } else {
@@ -103,12 +114,14 @@ export default function AuthAction() {
                 <div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[380px]">
                     <div className="flex flex-col space-y-2 text-center">
                         <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">
-                            {mode === "resetPassword" ? "Reset Password" : "Authentication"}
+                            {mode === "resetPassword" ? "Reset Password" : mode === "verifyEmail" ? "Verify Email" : "Authentication"}
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
                             {mode === "resetPassword" && email
                                 ? `Create a new password for ${email}`
-                                : "Secure account management"}
+                                : mode === "verifyEmail"
+                                    ? "We are verifying your email address."
+                                    : "Secure account management"}
                         </p>
                     </div>
 
@@ -128,8 +141,14 @@ export default function AuthAction() {
                             <div className="w-12 h-12 bg-green-100 dark:bg-green-900/20 rounded-full flex items-center justify-center text-green-600 dark:text-green-500">
                                 <CheckCircle2 className="w-6 h-6" />
                             </div>
-                            <h3 className="text-lg font-medium text-slate-900 dark:text-white">Password Updated</h3>
-                            <p className="text-sm text-slate-500 mb-2">Your password has been successfully reset. You can now log in with your new credentials.</p>
+                            <h3 className="text-lg font-medium text-slate-900 dark:text-white">
+                                {mode === "resetPassword" ? "Password Updated" : "Email Verified"}
+                            </h3>
+                            <p className="text-sm text-slate-500 mb-2">
+                                {mode === "resetPassword"
+                                    ? "Your password has been successfully reset. You can now log in with your new credentials."
+                                    : "Your email has been successfully verified. You can now access your account."}
+                            </p>
                             <Button onClick={() => navigate("/login")} className="w-full bg-royal-600 hover:bg-royal-700 h-11">
                                 Go to Login
                             </Button>

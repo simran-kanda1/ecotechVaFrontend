@@ -4,8 +4,9 @@ import { cn } from "../lib/utils";
 import { db } from "../lib/firebase";
 import { addDoc, collection, doc, serverTimestamp, updateDoc, query, where, getDocs, writeBatch, arrayUnion } from "firebase/firestore";
 import { format } from "date-fns";
-import { getNextCallbackTime } from "../lib/utils";
+import { getNextCallbackTime, formatPhoneNumber } from "../lib/utils";
 import { useState, useEffect } from "react";
+import { fetchCallsForNumber } from "../lib/retell";
 
 interface CallDetailModalProps {
     isOpen: boolean;
@@ -26,6 +27,10 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
     const [statusComment, setStatusComment] = useState("");
     const [isAddingComment, setIsAddingComment] = useState(false);
 
+    // Call History State
+    const [callHistory, setCallHistory] = useState<any[]>([]);
+    const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+
     useEffect(() => {
         if (call) {
             setIsUrgent(call.isUrgent || false);
@@ -33,15 +38,8 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
         }
     }, [call]);
 
-    if (!call) return null;
-
-    // Robust data extraction to handle various nesting structures
-    // Priority: 1. call object (root)
-    //           2. custom_analysis_data (variable)
-    //           3. callAnalysis.custom_analysis_data (nested)
-    //           4. customAnalysisDataRaw (backend raw)
-
     const getValue = (key: string) => {
+        if (!call) return undefined;
         // 1. Check root
         if (call[key] !== undefined && call[key] !== null && call[key] !== "") return call[key];
 
@@ -60,7 +58,7 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
         return undefined;
     };
 
-    const analysis = call.callAnalysis || {};
+    const analysis = call?.callAnalysis || {};
 
     // Data extraction using the helper
     const firstName = getValue('firstName') || getValue('customerName')?.split(' ')[0] || "Unknown";
@@ -68,6 +66,24 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
     const email = getValue('email') || getValue('customerEmail') || "N/A";
     const phone = getValue('phoneNumber') || getValue('phone') || getValue('customerPhone') || "N/A";
     const address = getValue('address') || analysis.address || "No address provided";
+
+    useEffect(() => {
+        const loadHistory = async () => {
+            if (!isOpen || !phone || phone === "N/A") return;
+            setIsLoadingHistory(true);
+            try {
+                const history = await fetchCallsForNumber(phone);
+                setCallHistory(history);
+            } catch (err) {
+                console.error("Failed to load call history", err);
+            } finally {
+                setIsLoadingHistory(false);
+            }
+        };
+        loadHistory();
+    }, [isOpen, phone]);
+
+    if (!call) return null;
 
     // Key Info Fields requested
     const hadPreviousQuote = getValue('hadPreviousQuote');
@@ -294,7 +310,7 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
                                         <div className="flex items-center gap-3 text-royal-200 text-sm mt-1.5">
                                             <div className="flex items-center gap-1">
                                                 <Phone className="w-3.5 h-3.5" />
-                                                {phone}
+                                                {formatPhoneNumber(phone)}
                                             </div>
                                             <span className="text-royal-600/50">|</span>
                                             <div className="flex items-center gap-1">
@@ -653,6 +669,55 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
                                         </div>
                                     )}
 
+                                </div>
+
+                                {/* BOTTOM COLUMN: Call Logs */}
+                                <div className="lg:col-span-12 space-y-6">
+                                    <div className="bg-white dark:bg-slate-900 rounded-xl p-6 shadow-sm border border-slate-100 dark:border-slate-800">
+                                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2 mb-4">
+                                            <History className="w-4 h-4 text-royal-600" />
+                                            Call History
+                                        </h4>
+                                        <p className="text-xs text-slate-500 mb-4 font-medium">Recorded calls with +1 (289) 816-6495</p>
+
+                                        {isLoadingHistory ? (
+                                            <div className="flex flex-col items-center justify-center py-6 text-slate-400">
+                                                <Loader2 className="w-6 h-6 animate-spin mb-2" />
+                                                <span className="text-sm">Looking up call history...</span>
+                                            </div>
+                                        ) : callHistory.length === 0 ? (
+                                            <div className="text-center py-6 text-sm text-slate-500 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-100 dark:border-slate-800">
+                                                No past calls found for this number.
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                                                {callHistory.map(callLog => (
+                                                    <div key={callLog.call_id} className="bg-slate-50 dark:bg-slate-800/80 p-4 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col gap-2">
+                                                        <div className="flex justify-between items-start">
+                                                            <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                                                                {format(new Date(callLog.start_timestamp), "MMM d, yyyy - h:mm a")}
+                                                            </span>
+                                                            <span className={cn(
+                                                                "text-xs font-medium px-2 py-0.5 rounded-full border",
+                                                                callLog.direction === 'inbound' ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                                            )}>
+                                                                {callLog.direction === 'inbound' ? "Inbound" : "Outbound"}
+                                                            </span>
+                                                        </div>
+                                                        <div className="text-sm text-slate-600 dark:text-slate-400">
+                                                            <span className="font-semibold text-slate-700 dark:text-slate-300">Outcome summary:</span> {callLog.call_analysis?.call_summary || callLog.call_analysis?.custom_analysis_data?.callOutcome || "No summary available"}
+                                                        </div>
+                                                        {callLog.duration_ms && (
+                                                            <div className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                                                                <Clock className="w-3 h-3" />
+                                                                {Math.round(callLog.duration_ms / 1000)}s
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>

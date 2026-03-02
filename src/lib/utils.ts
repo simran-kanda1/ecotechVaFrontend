@@ -88,3 +88,21 @@ export function getNextCallbackTime(): Date {
 
     return guessDate;
 }
+
+/**
+ * Format phone number to dashed format: 519-123-4567
+ */
+export function formatPhoneNumber(phoneNumber: string | undefined): string {
+    if (!phoneNumber) return "";
+    const cleaned = phoneNumber.replace(/\D/g, '');
+
+    // Check if it's a standard 10 or 11 digit number
+    if (cleaned.length === 11 && cleaned.startsWith('1')) {
+        return `${cleaned.slice(1, 4)}-${cleaned.slice(4, 7)}-${cleaned.slice(7)}`;
+    } else if (cleaned.length === 10) {
+        return `${cleaned.slice(0, 3)}-${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
+    }
+
+    // Fallback if it's too short or not recognized
+    return phoneNumber;
+}

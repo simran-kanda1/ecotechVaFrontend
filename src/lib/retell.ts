@@ -94,3 +94,65 @@ export async function fetchRetellCalls(
         return allCalls; // Return what we have so far
     }
 }
+
+/**
+ * Fetch calls specifically for a given phone number by scanning recent calls.
+ */
+export async function fetchCallsForNumber(phoneNumber: string): Promise<RetellCall[]> {
+    if (!apiKey || !phoneNumber) return [];
+
+    // Clean target phone number (last 10 digits)
+    const targetClean = phoneNumber.replace(/\D/g, '').slice(-10);
+    if (!targetClean) return [];
+
+    const matchNumber = (p: string) => {
+        return p?.replace(/\D/g, '').slice(-10) === targetClean;
+    };
+
+    try {
+        // Fetch up to 2000 recent calls to find matches
+        let allCalls: RetellCall[] = [];
+        let paginationKey: string | undefined = undefined;
+        let totalSearched = 0;
+
+        while (totalSearched < 2000) {
+            const response = await fetch("https://api.retellai.com/v2/list-calls", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${apiKey}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    limit: 1000,
+                    pagination_key: paginationKey,
+                    sort_order: 'descending'
+                })
+            });
+
+            if (!response.ok) break;
+
+            const data = await response.json();
+            if (Array.isArray(data) && data.length > 0) {
+                totalSearched += data.length;
+
+                // Keep only matches
+                const matches = data.filter((c: RetellCall) => {
+                    // Check if either to or from matches the target number AND the company's number was involved
+                    const isTargetInvolved = matchNumber(c.to_number) || matchNumber(c.from_number);
+                    return isTargetInvolved;
+                });
+
+                allCalls = [...allCalls, ...matches];
+
+                if (data.length < 1000) break;
+                paginationKey = data[data.length - 1].call_id;
+            } else {
+                break;
+            }
+        }
+        return allCalls;
+    } catch (e) {
+        console.error("Failed to fetch calls for number", e);
+        return [];
+    }
+}

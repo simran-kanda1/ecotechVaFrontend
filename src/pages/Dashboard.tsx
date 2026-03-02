@@ -4,9 +4,10 @@ import { db } from "../lib/firebase";
 import { Header } from "../components/Header";
 import { AddLeadModal } from "../components/AddLeadModal";
 import { CallDetailModal } from "../components/CallDetailModal";
-import { Loader2, PhoneIncoming, CheckCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Phone, Clock, User, Plus, Search, Trash2 } from "lucide-react";
+import { DashboardLegendModal } from "../components/DashboardLegendModal";
+import { Loader2, PhoneIncoming, CheckCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Phone, Clock, User, Plus, Search, Trash2, Info } from "lucide-react";
 import { format, isAfter, isBefore, subMonths, addMonths } from "date-fns";
-import { cn } from "../lib/utils";
+import { cn, formatPhoneNumber } from "../lib/utils";
 import { MOCK_CALLS } from "../data/mock-data";
 import { fetchRetellCalls, ECOTECH_NUMBER } from "../lib/retell";
 
@@ -24,6 +25,7 @@ export default function Dashboard() {
     const [loading, setLoading] = useState(true);
     const [selectedCall, setSelectedCall] = useState<Call | null>(null);
     const [isAddLeadOpen, setIsAddLeadOpen] = useState(false);
+    const [isLegendOpen, setIsLegendOpen] = useState(false);
 
     // Billing Cycle State
     // Default to current date to calculate the relevant billing cycle
@@ -199,16 +201,53 @@ export default function Dashboard() {
 
         // Apply Search Filter
         if (searchQuery.trim()) {
-            const lowerQuery = searchQuery.toLowerCase();
+            const lowerQuery = searchQuery.toLowerCase().trim();
+            let queryClean = lowerQuery.replace(/\D/g, ''); // Extract just numbers from query
+
+            // If the search query looks like a full 11-digit NA number starting with 1, strip the 1
+            if (queryClean.length === 11 && queryClean.startsWith('1')) {
+                queryClean = queryClean.slice(1);
+            }
+
             items = items.filter(item => {
                 const customData = item.custom_analysis_data || {};
                 const firstName = (customData.firstName || item.firstName || "").toLowerCase();
                 const lastName = (customData.lastName || item.lastName || "").toLowerCase();
-                const phoneNumber = (item.phoneNumber || customData.customerPhone || "").toLowerCase();
+                const oppIdStr = item.opportunityId !== undefined && item.opportunityId !== null ? String(item.opportunityId) : "";
+                const oppId = oppIdStr.toLowerCase();
 
-                return firstName.includes(lowerQuery) ||
-                    lastName.includes(lowerQuery) ||
-                    phoneNumber.includes(lowerQuery);
+                const rawCrmId = item.custom_analysis_data?.crmLeadId || item.crmLeadId || item.customAnalysisDataRaw?.crmLeadId || item.callAnalysis?.custom_analysis_data?.crmLeadId;
+                const crmIdStr = rawCrmId !== undefined && rawCrmId !== null ? String(rawCrmId) : "";
+                const crmId = crmIdStr.toLowerCase();
+
+                const phoneNumber = (item.phoneNumber || item.phone || customData.customerPhone || "").toLowerCase();
+                let numberClean = phoneNumber.replace(/\D/g, ''); // Extract just numbers from phone
+                if (numberClean.length === 11 && numberClean.startsWith('1')) {
+                    numberClean = numberClean.slice(1);
+                }
+
+                // Check 1: Name match
+                if (firstName.includes(lowerQuery) || lastName.includes(lowerQuery)) return true;
+
+                // Check 2: Phone number exact digit-match
+                if (queryClean.length > 0 && numberClean.includes(queryClean)) return true;
+
+                // Check 3: Raw phone string match just in case
+                if (phoneNumber.includes(lowerQuery)) return true;
+
+                // Check 4: ID matches
+                if (oppId.includes(lowerQuery) || crmId.includes(lowerQuery)) return true;
+
+                // Check 5: Ultimate fallback: check if the stringified item contains the query
+                // This covers cases where target data (like crmLeadId) is trapped inside a stringified JSON payload
+                try {
+                    const itemStr = JSON.stringify(item).toLowerCase();
+                    if (itemStr.includes(lowerQuery)) {
+                        return true;
+                    }
+                } catch (e) { }
+
+                return false;
             });
         }
 
@@ -305,13 +344,22 @@ export default function Dashboard() {
                             </button>
                         </div>
 
-                        <button
-                            onClick={() => setIsAddLeadOpen(true)}
-                            className="flex items-center gap-2 bg-royal-600 hover:bg-royal-700 text-white px-4 py-3 rounded-xl shadow-lg shadow-royal-900/20 transition-all font-medium"
-                        >
-                            <Plus className="w-5 h-5" />
-                            <span>Add Lead</span>
-                        </button>
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setIsLegendOpen(true)}
+                                className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 px-4 py-3 rounded-xl shadow-sm transition-all font-medium"
+                            >
+                                <Info className="w-5 h-5 text-indigo-500" />
+                                <span className="hidden sm:inline">Legend</span>
+                            </button>
+                            <button
+                                onClick={() => setIsAddLeadOpen(true)}
+                                className="flex items-center gap-2 bg-royal-600 hover:bg-royal-700 text-white px-4 py-3 rounded-xl shadow-lg shadow-royal-900/20 transition-all font-medium"
+                            >
+                                <Plus className="w-5 h-5" />
+                                <span>Add Lead</span>
+                            </button>
+                        </div>
                     </div>
 
                     {/* Quick Stats */}
@@ -459,6 +507,9 @@ export default function Dashboard() {
                                         <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[180px]">Date & Time</th>
                                         <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[240px]">Customer</th>
                                         <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Address</th>
+                                        {activeTab === 'opportunities' && (
+                                            <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[160px]">Opportunity ID</th>
+                                        )}
                                         <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[140px]">Status</th>
                                         <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[140px]">{activeTab === 'logs' ? 'Disconnection Reason' : 'Outcome'}</th>
                                         {activeTab === 'scheduled' && (
@@ -498,7 +549,7 @@ export default function Dashboard() {
                                         // Handle names/phone
                                         let firstName = customData.firstName || call.firstName || "Unknown";
                                         let lastName = customData.lastName || call.lastName || "";
-                                        let phoneNumber = call.phoneNumber || customData.customerPhone;
+                                        let phoneNumber = call.phoneNumber || call.phone || customData.customerPhone;
 
                                         // Lookup Helper for "Unknown" names in Logs
                                         if ((activeTab === 'scheduled' || activeTab === 'logs')) {
@@ -635,7 +686,7 @@ export default function Dashboard() {
                                                                 {firstName} {lastName}
                                                             </p>
                                                             <p className="text-xs text-slate-500 mt-0.5 font-mono">
-                                                                {phoneNumber}
+                                                                {formatPhoneNumber(phoneNumber)}
                                                             </p>
                                                         </div>
                                                     </div>
@@ -652,6 +703,19 @@ export default function Dashboard() {
                                                         </div>
                                                     )}
                                                 </td>
+
+                                                {/* Opportunity ID Block */}
+                                                {activeTab === 'opportunities' && (
+                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                        {call.opportunityId ? (
+                                                            <div className="inline-flex items-center px-2 py-1 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-600 dark:text-slate-400 shadow-sm">
+                                                                {call.opportunityId}
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-xs text-slate-400">-</span>
+                                                        )}
+                                                    </td>
+                                                )}
 
                                                 {/* Status Pill */}
                                                 <td className="px-6 py-4 whitespace-nowrap">
@@ -761,6 +825,11 @@ export default function Dashboard() {
                     console.log("Lead added successfully");
                     // Optionally trigger a refresh of the calls list here if we had a dedicated refresh function exposed or by tweaking an effect dependency
                 }}
+            />
+
+            <DashboardLegendModal
+                isOpen={isLegendOpen}
+                onClose={() => setIsLegendOpen(false)}
             />
         </div>
     );

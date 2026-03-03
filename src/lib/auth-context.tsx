@@ -1,13 +1,22 @@
 import { useNavigate, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { auth } from "../lib/firebase";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 
 export function useAuth() {
     const [user, setUser] = useState<any>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
+        // Force logout mechanism: Change the version string (e.g., to "v2") 
+        // in the future if you ever need to force everyone to sign out again.
+        const logoutVersion = "force_logout_v1";
+        if (!localStorage.getItem(logoutVersion)) {
+            signOut(auth).then(() => {
+                localStorage.setItem(logoutVersion, "true");
+            }).catch(console.error);
+        }
+
         const unsubscribe = onAuthStateChanged(auth, (user) => {
             setUser(user);
             setLoading(false);

@@ -17,9 +17,6 @@ type Call = any;
 
 const ITEMS_PER_PAGE = 50;
 
-// Only show call logs involving this phone number
-const CALL_LOGS_PHONE_FILTER = '+12898166495';
-
 const getOpportunityColor = (call: any) => {
     const customData = call.custom_analysis_data || {};
     const isBooked = customData.appointmentBooked || call.appointmentBooked;
@@ -189,12 +186,9 @@ export default function Dashboard() {
                 }
             })
                 .then(calls => {
-                    // Filter by call_type AND only calls involving the target phone number
+                    // Filter by call_type and map
                     const logs = calls
-                        .filter((c: any) =>
-                            c.call_type === 'phone_call' &&
-                            (c.from_number === CALL_LOGS_PHONE_FILTER || c.to_number === CALL_LOGS_PHONE_FILTER)
-                        )
+                        .filter((c: any) => c.call_type === 'phone_call' && (c.from_number === '+12898166495'))
                         .map((c: any) => ({
                             id: c.call_id,
                             receivedAt: { seconds: c.start_timestamp / 1000 },
@@ -246,7 +240,7 @@ export default function Dashboard() {
                 return dateA.getTime() - dateB.getTime();
             });
         } else {
-            // Retell Logs - Fetched from API (already filtered by phone number at fetch time)
+            // Retell Logs - Fetched from API
             items = retellLogs.filter((call) => {
                 let dateStr = call.receivedAt || call.callStartedAt;
                 if (!dateStr) return false;

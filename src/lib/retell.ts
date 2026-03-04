@@ -31,8 +31,8 @@ export interface RetellCall {
 }
 
 export async function fetchRetellCalls(
-    limit = 5000,
-    filterCriteria?: { after_start_timestamp?: number; before_start_timestamp?: number }
+    limit = 50000,
+    filterCriteria?: { start_timestamp?: { lower_threshold?: number; upper_threshold?: number } }
 ): Promise<RetellCall[]> {
     if (!apiKey) {
         console.error("Retell API Key is missing");

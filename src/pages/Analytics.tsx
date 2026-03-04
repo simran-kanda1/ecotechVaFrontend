@@ -91,7 +91,7 @@ export default function Analytics() {
 
                 // 3. Fetch RETELL CALLS (Total Call Source)
                 try {
-                    const rCalls = await fetchRetellCalls(10000);
+                    const rCalls = await fetchRetellCalls(50000);
                     setRetellCalls(rCalls);
                 } catch (e) {
                     console.error("Retell fetch error", e);
@@ -115,6 +115,7 @@ export default function Analytics() {
     // 1. Filter Retell Calls
     const filteredRetellCalls = retellCalls.filter(c => {
         if (!c.start_timestamp) return false;
+        if (c.call_type !== 'phone_call') return false;
         return c.start_timestamp >= CAMPAIGN_START.getTime();
     });
 

@@ -9,7 +9,7 @@ import { Loader2, PhoneIncoming, CheckCircle, Calendar as CalendarIcon, ChevronL
 import { format, isAfter, isBefore, subMonths, addMonths } from "date-fns";
 import { cn, formatPhoneNumber } from "../lib/utils";
 import { MOCK_CALLS } from "../data/mock-data";
-import { fetchRetellCalls, ECOTECH_NUMBER } from "../lib/retell";
+import { fetchRetellCalls } from "../lib/retell";
 import { logActivity } from "../lib/activity-logger";
 
 // Type definitions
@@ -179,20 +179,22 @@ export default function Dashboard() {
         if (activeTab === 'logs' && lastRetellFetchStart !== start.getTime()) {
             setLoading(true);
             setLastRetellFetchStart(start.getTime());
-            fetchRetellCalls(5000, {
-                after_start_timestamp: start.getTime(),
-                before_start_timestamp: end.getTime()
+            fetchRetellCalls(50000, {
+                start_timestamp: {
+                    lower_threshold: start.getTime(),
+                    upper_threshold: end.getTime()
+                }
             })
                 .then(calls => {
-                    // Filter by from_number (ECOTECH_NUMBER) and map
+                    // Filter by call_type and map
                     const logs = calls
-                        .filter((c: any) => c.from_number === ECOTECH_NUMBER)
+                        .filter((c: any) => c.call_type === 'phone_call')
                         .map((c: any) => ({
                             id: c.call_id,
                             receivedAt: { seconds: c.start_timestamp / 1000 },
                             firstName: "Unknown",
                             lastName: "",
-                            phoneNumber: c.to_number, // Outbound call target
+                            phoneNumber: c.direction === 'inbound' ? c.from_number : c.to_number, // Customer phone
                             callStatus: c.call_status,
                             callOutcome: c.call_analysis?.custom_analysis_data?.callOutcome || c.call_analysis?.user_sentiment || "Unknown",
                             disconnection_reason: c.disconnection_reason,

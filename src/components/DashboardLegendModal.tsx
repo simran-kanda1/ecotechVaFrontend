@@ -140,12 +140,11 @@ export function DashboardLegendModal({ isOpen, onClose }: DashboardLegendModalPr
                                         <Clock className="w-5 h-5 text-indigo-500" />
                                         <span className="font-semibold text-sm">Daily Callback Times</span>
                                     </div>
-                                    <ul className="list-disc list-outside ml-12 text-sm text-slate-600 dark:text-slate-400 space-y-1">
-                                        <li><strong>9:00 AM:</strong> First callback of the day, specifically for leads generated overnight.</li>
-                                        <li><strong>10:00 AM</strong></li>
-                                        <li><strong>2:00 PM</strong></li>
-                                        <li><strong>6:00 PM</strong></li>
-                                        <li><strong>7:45 PM</strong></li>
+                                    <ul className="list-disc list-outside ml-12 text-sm text-slate-600 dark:text-slate-400 space-y-2">
+                                        <li><strong>Initial Call:</strong> Placed at <strong>9:00 AM</strong> if the lead came in after hours, or immediately after the lead is received during business hours.</li>
+                                        <li><strong>Standard Callbacks:</strong> Scheduled at <strong>12:00 PM</strong>, <strong>5:30 PM</strong>, and <strong>8:00 PM</strong>.</li>
+                                        <li><strong>Leads older than 14 days:</strong> Scheduled callbacks will only occur at <strong>11:00 AM</strong> and <strong>6:30 PM</strong>.</li>
+                                        <li><strong>Leads older than 30 days:</strong> No further scheduled callbacks will be made.</li>
                                     </ul>
                                 </div>
                             </div>

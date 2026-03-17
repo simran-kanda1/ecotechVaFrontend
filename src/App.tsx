@@ -3,6 +3,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Analytics from "./pages/Analytics";
 import Activity from "./pages/Activity";
+import TestCases from "./pages/TestCases";
 import ForgotPassword from "./pages/ForgotPassword";
 import AuthAction from "./pages/AuthAction";
 import { ProtectedRoute } from "./lib/auth-context";
@@ -36,6 +37,14 @@ function App() {
           element={
             <ProtectedRoute>
               <Activity />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/test-cases"
+          element={
+            <ProtectedRoute>
+              <TestCases />
             </ProtectedRoute>
           }
         />

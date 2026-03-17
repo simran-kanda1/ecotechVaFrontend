@@ -1,11 +1,23 @@
 import { useNavigate, Link, useLocation } from "react-router-dom";
-import { auth } from "../lib/firebase";
-import { LogOut, LayoutDashboard, BarChart3, Activity } from "lucide-react";
+import { auth, db } from "../lib/firebase";
+import { LogOut } from "lucide-react";
+import { doc, onSnapshot } from "firebase/firestore";
+import { useEffect, useState } from "react";
 import { cn } from "../lib/utils";
 
 export function Header() {
     const navigate = useNavigate();
     const location = useLocation();
+    const [isSystemPaused, setIsSystemPaused] = useState(false);
+
+    useEffect(() => {
+        const unsubscribe = onSnapshot(doc(db, "systemConfig", "status"), (docSnap) => {
+            if (docSnap.exists()) {
+                setIsSystemPaused(docSnap.data().isSystemPaused || false);
+            }
+        });
+        return () => unsubscribe();
+    }, []);
 
     const handleLogout = async () => {
         await auth.signOut();
@@ -42,10 +54,12 @@ export function Header() {
                                 </p>
                                 <div className="flex items-center gap-1.5 mt-0.5">
                                     <span className="relative flex h-1.5 w-1.5">
-                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500"></span>
+                                        {!isSystemPaused && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>}
+                                        <span className={cn("relative inline-flex rounded-full h-1.5 w-1.5", isSystemPaused ? "bg-red-500" : "bg-green-500")}></span>
                                     </span>
-                                    <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Voice Agent Ready</p>
+                                    <p className={cn("text-[10px] font-medium uppercase tracking-wider", isSystemPaused ? "text-red-500" : "text-slate-500")}>
+                                        {isSystemPaused ? "System Paused" : "Voice Agent Ready"}
+                                    </p>
                                 </div>
                             </div>
                         </div>
@@ -60,7 +74,6 @@ export function Header() {
                                         : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800"
                                 )}
                             >
-                                <LayoutDashboard className="w-4 h-4" />
                                 Dashboard
                             </Link>
                             <Link
@@ -72,7 +85,6 @@ export function Header() {
                                         : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800"
                                 )}
                             >
-                                <BarChart3 className="w-4 h-4" />
                                 Analytics
                             </Link>
                             <Link
@@ -84,8 +96,18 @@ export function Header() {
                                         : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800"
                                 )}
                             >
-                                <Activity className="w-4 h-4" />
                                 Activity
+                            </Link>
+                            <Link
+                                to="/test-cases"
+                                className={cn(
+                                    "px-3 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2",
+                                    location.pathname === "/test-cases"
+                                        ? "bg-royal-50 text-royal-700 dark:bg-royal-900/20 dark:text-royal-300"
+                                        : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                )}
+                            >
+                                Test Cases
                             </Link>
                         </nav>
                     </div>

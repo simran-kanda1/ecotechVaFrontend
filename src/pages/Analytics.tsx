@@ -1,786 +1,800 @@
 import { useEffect, useState, useRef } from "react";
-import { collection, query, getDocs, orderBy, limit } from "firebase/firestore";
+import { collection, query, getDocs, orderBy, limit, where } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { Header } from "../components/Header";
-import { TrendingUp, Phone, Calendar as CalendarIcon, Download, Users, BarChart3, HelpCircle, Activity, ThumbsDown, ThumbsUp, CalendarCheck, Zap, Clock } from "lucide-react";
-import { format, isSameDay, eachDayOfInterval, isAfter } from "date-fns";
+import {
+    Phone, Calendar as CalendarIcon, Download, Users, BarChart3,
+    Activity, ThumbsDown, ThumbsUp, Zap, Clock, AlertCircle,
+    TrendingUp, PhoneForwarded, PhoneOff, CheckCircle2, XCircle,
+    RefreshCw, Pencil
+} from "lucide-react";
+import { format, isSameDay, eachDayOfInterval, isAfter, isBefore, getDay, getHours, parseISO } from "date-fns";
 import {
     BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
     PieChart as RechartsPieChart, Pie, Cell, CartesianGrid,
-    AreaChart, Area
+    AreaChart, Area, Legend
 } from "recharts";
-import { cn } from "../lib/utils";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-
 import { fetchRetellCalls } from "../lib/retell";
 
-const COLORS = ['#00C49F', '#FFBB28', '#FF8042', '#0088FE', '#8884d8', '#82ca9d'];
+// ─── Constants ───────────────────────────────────────────────────────────────
+const REPORT_START = new Date("2026-02-22T00:00:00");
+const REPORT_END = new Date("2026-03-13T23:59:59");
+const AGENT_ID = "agent_298a63eaae62f545bfc84329a6";
+const FROM_NUMBER = "+12898166495";
 
-// Stats Card Component with enhanced styling
-function StatCard({ title, value, subtext, icon: Icon, colorClass, delay = 0 }: any) {
+const COLORS = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#7c3aed", "#0891b2", "#be185d"];
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function toDate(val: any): Date | null {
+    if (!val) return null;
+    if (val.seconds) return new Date(val.seconds * 1000);
+    if (typeof val === "string" || typeof val === "number") return new Date(val);
+    return null;
+}
+
+function inRange(d: Date | null) {
+    if (!d) return false;
+    return !isBefore(d, REPORT_START) && !isAfter(d, REPORT_END);
+}
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+function KPI({ label, value, sub, icon: Icon, accent = "#2563eb" }: any) {
+    return (
+        <div style={{ borderTop: `3px solid ${accent}` }} className="bg-white p-5 rounded">
+            <div className="flex justify-between items-start">
+                <span className="text-xs font-semibold uppercase tracking-widest text-slate-400">{label}</span>
+                <Icon className="w-4 h-4" style={{ color: accent }} />
+            </div>
+            <div className="mt-3 text-3xl font-bold text-slate-900">{value}</div>
+            {sub && <div className="mt-1 text-xs text-slate-500">{sub}</div>}
+        </div>
+    );
+}
+
+function SectionTitle({ children }: any) {
+    return (
+        <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400 mb-4 border-b border-slate-100 pb-2">
+            {children}
+        </h2>
+    );
+}
+
+// ─── PDF Page Wrapper ─────────────────────────────────────────────────────────
+function PdfPage({ children, pageRef }: any) {
     return (
         <div
-            className="group relative overflow-hidden bg-white/80 dark:bg-slate-900/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1"
-            style={{ animationDelay: `${delay}ms` }}
+            ref={pageRef}
+            style={{ width: 1100, backgroundColor: "#fff", padding: 56, fontFamily: "Georgia, serif" }}
         >
-            <div className={`absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity ${colorClass.replace('bg-', 'text-')}`}>
-                <Icon className="w-24 h-24 transform translate-x-4 -translate-y-4" />
-            </div>
+            {children}
+        </div>
+    );
+}
 
-            <div className="relative z-10 flex flex-col h-full justify-between">
-                <div className="flex justify-between items-start mb-4">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{title}</p>
-                    <div className={cn("p-2 rounded-xl bg-opacity-20", colorClass)}>
-                        <Icon className="w-5 h-5" />
-                    </div>
-                </div>
+function PdfHeader({ page, total }: any) {
+    return (
+        <div style={{ marginBottom: 36 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", borderBottom: "2px solid #1e293b", paddingBottom: 16 }}>
                 <div>
-                    <div className="text-3xl font-extrabold text-slate-900 dark:text-white mb-1 tracking-tight">{value}</div>
-                    {subtext && <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{subtext}</p>}
+                    <div style={{ fontSize: 26, fontWeight: 800, color: "#0f172a", letterSpacing: -0.5 }}>EcoTech Windows & Doors</div>
+                    <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>AI Voice Agent Performance Report &nbsp;·&nbsp; Feb 22 – Mar 13, 2026</div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 11, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1 }}>Prepared by Simvana Digital Agency</div>
+                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>+1 (289) 816-6495 &nbsp;·&nbsp; Page {page} of {total}</div>
                 </div>
             </div>
         </div>
     );
 }
 
+// ─── Main Component ──────────────────────────────────────────────────────────
 export default function Analytics() {
     const [loading, setLoading] = useState(true);
-    const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
-    const [calls, setCalls] = useState<any[]>([]); // Leads (Opportunities)
-    const [retellCalls, setRetellCalls] = useState<any[]>([]); // Actual Retell calls
-    const [scheduledCallbacks, setScheduledCallbacks] = useState<any[]>([]);
+    const [generating, setGenerating] = useState(false);
+    const [leads, setLeads] = useState<any[]>([]);
+    const [retellCalls, setRetellCalls] = useState<any[]>([]);
+    const [callbacks, setCallbacks] = useState<any[]>([]);
+    const [activityLogs, setActivityLogs] = useState<any[]>([]);
+    const [salesRankings, setSalesRankings] = useState<any[]>([]);
+    const [recentBookings, setRecentBookings] = useState<any[]>([]);
 
-    // Explicit refs for 2-page PDF layout
     const page1Ref = useRef<HTMLDivElement>(null);
     const page2Ref = useRef<HTMLDivElement>(null);
+    const page3Ref = useRef<HTMLDivElement>(null);
 
-    // Fetch All Data
+    // ── Fetch ──────────────────────────────────────────────────────────────
     useEffect(() => {
-        async function fetchData() {
+        async function load() {
             setLoading(true);
             try {
-                // 1. Fetch LEADS (Source of Truth for Appointments & Opportunities)
-                const leadsRef = collection(db, "leads");
-                const qLeads = query(leadsRef, orderBy("receivedAt", "desc"), limit(10000));
+                // Leads
+                const leadsSnap = await getDocs(query(collection(db, "leads"), orderBy("receivedAt", "desc"), limit(9999)));
+                setLeads(leadsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
-                let fetchedLeads: any[] = [];
-                try {
-                    const snap = await getDocs(qLeads);
-                    snap.forEach((doc) => {
-                        fetchedLeads.push({ id: doc.id, ...doc.data() });
-                    });
-                } catch (e) {
-                    console.warn("Leads fetch error", e);
-                }
-                setCalls(fetchedLeads);
+                // Callbacks
+                const cbSnap = await getDocs(query(collection(db, "scheduledCallbacks"), limit(5000)));
+                setCallbacks(cbSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
-                // 2. Fetch SCHEDULED CALLBACKS
-                const callbacksRef = collection(db, "scheduledCallbacks");
-                const qCallbacks = query(callbacksRef, limit(5000));
-                let fetchedCallbacks: any[] = [];
-                try {
-                    const snap = await getDocs(qCallbacks);
-                    snap.forEach((doc) => {
-                        fetchedCallbacks.push({ id: doc.id, ...doc.data() });
-                    });
-                } catch (e) {
-                    console.warn("Callbacks fetch error", e);
-                }
-                setScheduledCallbacks(fetchedCallbacks);
+                // Activity Logs
+                const alSnap = await getDocs(query(collection(db, "activityLogs"), limit(5000)));
+                setActivityLogs(alSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
-                // 3. Fetch RETELL CALLS (Total Call Source)
-                try {
-                    const rCalls = await fetchRetellCalls(50000);
-                    setRetellCalls(rCalls);
-                } catch (e) {
-                    console.error("Retell fetch error", e);
-                }
+                // Sales Rankings
+                const srSnap = await getDocs(query(collection(db, "salesRankings"), limit(500)));
+                setSalesRankings(srSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
-            } catch (error) {
-                console.error("Error fetching analytics data:", error);
+                // Recent Bookings
+                const rbSnap = await getDocs(query(collection(db, "recentBookings"), limit(500)));
+                setRecentBookings(rbSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+                // Retell — use same limit as original working code
+                const rc = await fetchRetellCalls(50000);
+                setRetellCalls(rc);
+            } catch (e) {
+                console.error(e);
             } finally {
                 setLoading(false);
             }
         }
-
-        fetchData();
+        load();
     }, []);
 
-    // --- Processing Data for KPIs ---
-
-    // Constants
-    const CAMPAIGN_START = new Date('2026-01-22T00:00:00');
-
-    // 1. Filter Retell Calls
-    const filteredRetellCalls = retellCalls.filter(c => {
+    // ── Filter Retell calls: match original approach exactly ─────────────
+    // Filter by call_type + date range (same as original Analytics.tsx)
+    // Additionally scope to EcoTech's agent or from_number when available
+    const filteredRetell = retellCalls.filter(c => {
         if (!c.start_timestamp) return false;
-        if (c.call_type !== 'phone_call') return false;
-        return c.start_timestamp >= CAMPAIGN_START.getTime();
+        if (c.call_type !== "phone_call") return false;
+        const d = new Date(c.start_timestamp);
+        if (isBefore(d, REPORT_START) || isAfter(d, REPORT_END)) return false;
+        // If agent_id is present, use it to scope; otherwise fall back to from_number
+        if (c.agent_id) return c.agent_id === AGENT_ID;
+        if (c.from_number) return c.from_number === FROM_NUMBER;
+        return true; // include if neither field exists
     });
 
-    const totalCallsCount = filteredRetellCalls.length;
+    // ── Filter Leads in date range ────────────────────────────────────────
+    const filteredLeads = leads.filter(l => inRange(toDate(l.receivedAt)));
 
-    // 2. Sentiment Analysis
-    const negativeSentimentCount = filteredRetellCalls.filter(c => {
-        const sentiment = c.call_analysis?.user_sentiment?.toLowerCase() || "";
-        return sentiment.includes("negative");
+    // ── KPIs ──────────────────────────────────────────────────────────────
+    const totalCalls = filteredRetell.length;
+    const totalOpportunities = filteredLeads.length;
+
+    // Sentiment
+    const posCalls = filteredRetell.filter(c => {
+        const s = (c.call_analysis?.user_sentiment || "").toLowerCase();
+        return s.includes("positive") || s.includes("neutral");
+    }).length;
+    const negCalls = filteredRetell.filter(c => {
+        const s = (c.call_analysis?.user_sentiment || "").toLowerCase();
+        return s.includes("negative");
+    }).length;
+    const posPct = totalCalls > 0 ? ((posCalls / totalCalls) * 100).toFixed(1) : "0.0";
+    const negPct = totalCalls > 0 ? ((negCalls / totalCalls) * 100).toFixed(1) : "0.0";
+
+    // Transferred
+    const transferredCalls = filteredRetell.filter(c => {
+        const outcome = (c.call_analysis?.call_summary || c.disconnection_reason || "").toLowerCase();
+        return outcome.includes("transfer") || c.disconnection_reason === "agent_hangup" && (c.call_analysis?.custom_analysis_data?.transferred === true);
     }).length;
 
-    const positiveSentimentCount = filteredRetellCalls.filter(c => {
-        const sentiment = c.call_analysis?.user_sentiment?.toLowerCase() || "";
-        return sentiment.includes("positive") || sentiment.includes("neutral");
-    }).length;
-
-    // 3. Appointments Booked
-    const bookedLeads = calls.filter(c => {
-        const booked1 = c.custom_analysis_data?.appointmentBooked;
-        const booked2 = c.appointmentBooked;
-        return (booked1 === true || booked1 === "true") || (booked2 === true || booked2 === "true");
+    // Booked — from leads
+    const bookedLeads = filteredLeads.filter(l => {
+        const b1 = l.custom_analysis_data?.appointmentBooked;
+        const b2 = l.appointmentBooked;
+        return b1 === true || b1 === "true" || b2 === true || b2 === "true";
     });
     const totalBooked = bookedLeads.length;
+    const convRate = totalOpportunities > 0 ? ((totalBooked / totalOpportunities) * 100).toFixed(1) : "0.0";
 
-    // 4. Conversion Rate
-    const totalOpportunities = calls.length;
-    const conversionRate = totalOpportunities > 0
-        ? ((totalBooked / totalOpportunities) * 100).toFixed(1)
-        : "0.0";
+    // ── Retell Disconnect Reasons ─────────────────────────────────────────
+    const disconnectReasons = filteredRetell.reduce((acc: Record<string, number>, c) => {
+        let r = c.disconnection_reason || "unknown";
+        // Skip retell errors
+        if (r.toLowerCase().includes("retell_error") || r.toLowerCase().includes("error")) return acc;
+        // Normalize
+        if (r === "user_hangup") r = "User Hangup";
+        else if (r === "agent_hangup") r = "Agent Hangup";
+        else if (r === "dial_busy") r = "Dial Busy";
+        else if (r === "dial_no_answer") r = "No Answer";
+        else if (r === "voicemail_reached") r = "Voicemail";
+        else if (r === "invalid_destination") r = "Invalid Destination";
+        else if (r === "call_transfer") r = "Transferred";
+        else if (r === "inactivity") r = "Inactivity";
+        else r = r.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+        acc[r] = (acc[r] || 0) + 1;
+        return acc;
+    }, {});
+    const disconnectData = Object.entries(disconnectReasons)
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value);
 
-    // 5. Day Analysis Helper
-    function getBestDay(data: any[], dateAccessor: (item: any) => Date | null) {
-        const counts: Record<string, number> = {};
-        data.forEach(item => {
-            const date = dateAccessor(item);
-            if (date) {
-                const day = format(date, 'EEEE');
-                counts[day] = (counts[day] || 0) + 1;
-            }
-        });
+    // ── Day of Week Most Booked ───────────────────────────────────────────
+    const dayOfWeekBookings: Record<number, number> = {};
+    bookedLeads.forEach(l => {
+        const d = toDate(l.custom_analysis_data?.callCompletedAt || l.receivedAt);
+        if (d) {
+            const dow = getDay(d);
+            dayOfWeekBookings[dow] = (dayOfWeekBookings[dow] || 0) + 1;
+        }
+    });
+    const bestDow = Object.entries(dayOfWeekBookings).sort((a, b) => +b[1] - +a[1])[0];
+    const bestDowName = bestDow ? DAY_NAMES[+bestDow[0]] : "N/A";
+    const bestDowCount = bestDow ? bestDow[1] : 0;
 
-        let maxDay = "N/A";
-        let maxCount = 0;
-        Object.entries(counts).forEach(([day, count]) => {
-            if (count > maxCount) {
-                maxCount = count;
-                maxDay = day;
-            }
-        });
-        return { day: maxDay, count: maxCount };
-    }
+    // ── Time of Day Most Answered ─────────────────────────────────────────
+    const hourBuckets: Record<number, number> = {};
+    filteredRetell.forEach(c => {
+        const s = (c.call_analysis?.user_sentiment || "").toLowerCase();
+        const answered = !["dial_no_answer", "voicemail_reached", "dial_busy", "invalid_destination"].includes(c.disconnection_reason || "");
+        if (answered && c.start_timestamp) {
+            const h = getHours(new Date(c.start_timestamp));
+            hourBuckets[h] = (hourBuckets[h] || 0) + 1;
+        }
+    });
+    const bestHourEntry = Object.entries(hourBuckets).sort((a, b) => +b[1] - +a[1])[0];
+    const bestHour = bestHourEntry ? +bestHourEntry[0] : null;
+    const bestHourStr = bestHour !== null
+        ? (bestHour === 0 ? "12 AM" : bestHour < 12 ? `${bestHour} AM` : bestHour === 12 ? "12 PM" : `${bestHour - 12} PM`)
+        : "N/A";
 
-    const bestBookingDay = getBestDay(bookedLeads, (c) => {
-        const t = c.custom_analysis_data?.callCompletedAt || c.receivedAt;
-        if (!t) return null;
-        return t.seconds ? new Date(t.seconds * 1000) : new Date(t);
+    // ── Never Answered (cross-ref Retell) ────────────────────────────────
+    // For each lead, check if ALL retell calls with that phone number = no answer
+    const phoneToRetellCalls: Record<string, typeof filteredRetell> = {};
+    filteredRetell.forEach(c => {
+        const num = c.to_number || c.from_number || "";
+        if (!phoneToRetellCalls[num]) phoneToRetellCalls[num] = [];
+        phoneToRetellCalls[num].push(c);
     });
 
-    const bestLeadDay = getBestDay(calls, (c) => {
-        const t = c.receivedAt;
-        if (!t) return null;
-        return t.seconds ? new Date(t.seconds * 1000) : new Date(t);
-    });
-
-    // 6. Daily Call Volume (Chart)
-    const dailyCallVolumeData = (() => {
-        const today = new Date();
-        const intervalStart = isAfter(today, CAMPAIGN_START) ? CAMPAIGN_START : today;
-        const days = eachDayOfInterval({ start: intervalStart, end: today });
-
-        return days.map(day => {
-            const count = filteredRetellCalls.filter(c => {
-                if (!c.start_timestamp) return false;
-                return isSameDay(new Date(c.start_timestamp), day);
-            }).length;
-
-            return {
-                date: format(day, "MMM dd"),
-                calls: count
-            };
-        });
-    })();
-
-    // New Opportunities per Day (Leads receivedAt)
-    const opportunitiesData = (() => {
-        const today = new Date();
-        const intervalStart = isAfter(today, CAMPAIGN_START) ? CAMPAIGN_START : today;
-        const days = eachDayOfInterval({ start: intervalStart, end: today });
-
-        return days.map(day => {
-            const count = calls.filter(c => {
-                const t = c.receivedAt;
-                if (!t) return false;
-                const d = t.seconds ? new Date(t.seconds * 1000) : new Date(t);
-                return isSameDay(d, day);
-            }).length;
-
-            return {
-                date: format(day, "MMM dd"),
-                leads: count
-            };
-        });
-    })();
-
-    // 7. Callback Execution History (Chart)
-    const callbackHistoryData = (() => {
-        const today = new Date();
-        const intervalStart = isAfter(today, CAMPAIGN_START) ? CAMPAIGN_START : today;
-        const days = eachDayOfInterval({ start: intervalStart, end: today });
-
-        return days.map(day => {
-            const count = scheduledCallbacks.filter(c => {
-                if (c.status !== "triggered") return false;
-                const t = c.triggeredAt; // Use actual trigger time
-                if (!t) return false;
-                const d = t.seconds ? new Date(t.seconds * 1000) : new Date(t);
-                return isSameDay(d, day);
-            }).length;
-            return {
-                date: format(day, "MMM dd"),
-                callbacks: count
-            };
-        });
-    })();
-
-    // Future Callbacks Count
-    const totalFutureCallbacks = scheduledCallbacks.filter(c => {
-        const t = c.scheduledFor || c.nextCallbackTime;
-        if (!t) return false;
-        const d = t.seconds ? new Date(t.seconds * 1000) : new Date(t);
-        return isAfter(d, new Date()) && c.status !== "triggered";
+    const neverAnsweredCount = filteredLeads.filter(l => {
+        const phone = l.phone || l.phoneNumber || l.custom_analysis_data?.phone || "";
+        const relatedCalls = phoneToRetellCalls[phone] || [];
+        if (relatedCalls.length === 0) return false; // Can't determine without retell data
+        const noAnswerReasons = ["dial_no_answer", "voicemail_reached", "dial_busy", "invalid_destination"];
+        return relatedCalls.every(c => noAnswerReasons.includes(c.disconnection_reason || ""));
     }).length;
 
-    // 8. Salesperson Performance
-    const salespersonData = (() => {
-        const stats: Record<string, number> = {};
-        bookedLeads.forEach(lead => {
-            let agent = lead.salespersonAssigned || lead.assignedSalesperson || lead.custom_analysis_data?.salespersonAssigned;
-            if (agent) {
-                stats[agent] = (stats[agent] || 0) + 1;
+    // ── Avg Calls Before Booking ──────────────────────────────────────────
+    const callsPerBookedLead: number[] = [];
+    bookedLeads.forEach(l => {
+        const phone = l.phone || l.phoneNumber || l.custom_analysis_data?.phone || "";
+        const relatedCalls = phoneToRetellCalls[phone] || [];
+        if (relatedCalls.length > 0) callsPerBookedLead.push(relatedCalls.length);
+    });
+    const avgCallsBeforeBooking = callsPerBookedLead.length > 0
+        ? (callsPerBookedLead.reduce((a, b) => a + b, 0) / callsPerBookedLead.length).toFixed(1)
+        : "N/A";
+
+    // ── Activity Log — Who Made Most Edits ────────────────────────────────
+    const editCounts: Record<string, number> = {};
+    activityLogs.forEach(log => {
+        // Try every likely email/name field — skip raw UIDs
+        const user =
+            log.userEmail ||
+            log.email ||
+            log.performedBy ||
+            log.performedByEmail ||
+            log.modifiedBy ||
+            log.changedBy ||
+            log.userName ||
+            log.displayName ||
+            log.user ||
+            null;
+        if (!user) return;
+        // Skip raw Firebase UIDs (no @ sign, no spaces, long string)
+        if (!user.includes("@") && !user.includes(" ") && user.length > 25) return;
+        editCounts[user] = (editCounts[user] || 0) + 1;
+    });
+    const topEditors = Object.entries(editCounts)
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+
+    // ── Sales Rankings ────────────────────────────────────────────────────
+    // salesRankings docs each have a `rankings` array with nested salesperson data
+    // Structure: doc.rankings[].rawData.last3Months.deals[0].salespersonName / soldLead / periodScore
+    const allReps: { name: string; score: number; bookings: number; closingRate: number; region: string }[] = [];
+    salesRankings.forEach(doc => {
+        const rankingsArr = doc.rankings || [];
+        rankingsArr.forEach((entry: any) => {
+            // Get name + stats from the most recent period (last3Months)
+            const deal = entry.rawData?.last3Months?.deals?.[0] || entry.rawData?.lastMonth?.deals?.[0] || {};
+            const name = deal.salespersonName || entry.name || null;
+            if (!name) return;
+            const score = entry.metrics?.last3Months?.periodScore || entry.metrics?.lastMonth?.periodScore || 0;
+            const bookings = deal.soldLead || entry.metrics?.last3Months?.soldLeads || 0;
+            const closingRate = deal.closingRatio || entry.metrics?.last3Months?.closingRatio || 0;
+            const region = deal.region || "";
+            // Avoid duplicates — keep highest score entry per person
+            const existing = allReps.find(r => r.name === name);
+            if (existing) {
+                if (score > existing.score) {
+                    existing.score = score;
+                    existing.bookings = bookings;
+                    existing.closingRate = closingRate;
+                }
+            } else {
+                allReps.push({ name, score, bookings, closingRate, region });
             }
         });
+    });
+    const topSalesReps = allReps.sort((a, b) => b.score - a.score).slice(0, 10);
 
+    // Fallback to booked leads if salesRankings is empty or unparseable
+    const salespersonFromLeads = (() => {
+        const stats: Record<string, number> = {};
+        bookedLeads.forEach(l => {
+            const agent = l.salespersonAssigned || l.assignedSalesperson || l.custom_analysis_data?.salespersonAssigned;
+            if (agent) stats[agent] = (stats[agent] || 0) + 1;
+        });
         return Object.entries(stats)
-            .map(([name, value]) => ({ name, value }))
-            .sort((a, b) => b.value - a.value)
-            .slice(0, 5);
+            .map(([name, bookings]) => ({ name, score: 0, bookings, closingRate: 0, region: "" }))
+            .sort((a, b) => b.bookings - a.bookings).slice(0, 10);
     })();
 
-    // 9. Outcome Distribution
-    const outcomeData = calls.reduce((acc: any[], call) => {
-        let outcome = call.callOutcome || call.custom_analysis_data?.callOutcome || "Unknown";
-        outcome = outcome.toLowerCase();
+    const displayedSalesReps = topSalesReps.length > 0 ? topSalesReps : salespersonFromLeads;
 
-        if (outcome.includes('voicemail')) outcome = 'Voicemail';
-        else if (outcome.includes('answer') && !outcome.includes('no')) outcome = 'Answered';
-        else if (outcome.includes('booked')) outcome = 'Booked';
-        else if (outcome.includes('failed')) outcome = 'Failed';
-        else if (outcome.includes('no_answer')) outcome = 'No Answer';
-        else outcome = 'Other';
+    // ── Daily Volume Chart ────────────────────────────────────────────────
+    const days = eachDayOfInterval({ start: REPORT_START, end: REPORT_END });
+    const dailyCallData = days.map(day => ({
+        date: format(day, "MMM d"),
+        calls: filteredRetell.filter(c => c.start_timestamp && isSameDay(new Date(c.start_timestamp), day)).length,
+        booked: bookedLeads.filter(l => {
+            const d = toDate(l.custom_analysis_data?.callCompletedAt || l.receivedAt);
+            return d && isSameDay(d, day);
+        }).length,
+    }));
 
-        const existing = acc.find(i => i.name === outcome);
-        if (existing) existing.value++;
-        else acc.push({ name: outcome, value: 1 });
-        return acc;
-    }, []).sort((a: any, b: any) => b.value - a.value);
+    // ── Hour of Day Distribution ──────────────────────────────────────────
+    const hourlyData = Array.from({ length: 14 }, (_, i) => i + 8).map(h => ({
+        hour: h <= 12 ? `${h === 0 ? 12 : h} AM` : `${h === 12 ? 12 : h - 12} PM`,
+        answered: hourBuckets[h] || 0,
+    }));
 
+    // ── Day of Week Distribution ──────────────────────────────────────────
+    const dowData = DAY_NAMES.map((name, i) => ({
+        day: name.slice(0, 3),
+        bookings: dayOfWeekBookings[i] || 0,
+    }));
 
-    // PDF Generation Logic (Two Pages)
+    // ─────────────────────────────────────────────────────────────────────
+    // PDF Generation
+    // ─────────────────────────────────────────────────────────────────────
     const generatePDF = async () => {
-        setIsGeneratingPdf(true);
-        // Wait for render to update with "Print Layout"
-        setTimeout(async () => {
-            try {
-                const pdf = new jsPDF('p', 'mm', 'a4');
-                const pdfWidth = pdf.internal.pageSize.getWidth();
+        setGenerating(true);
+        await new Promise(r => setTimeout(r, 600));
+        try {
+            const pdf = new jsPDF("p", "mm", "a4");
+            const W = pdf.internal.pageSize.getWidth();
 
-
-                if (page1Ref.current) {
-                    const canvas1 = await html2canvas(page1Ref.current, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false });
-                    const imgData1 = canvas1.toDataURL('image/png');
-                    const imgHeight1 = (canvas1.height * pdfWidth) / canvas1.width;
-                    pdf.addImage(imgData1, 'PNG', 0, 0, pdfWidth, imgHeight1);
-                }
-
-                if (page2Ref.current) {
-                    pdf.addPage();
-                    const canvas2 = await html2canvas(page2Ref.current, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false });
-                    const imgData2 = canvas2.toDataURL('image/png');
-                    const imgHeight2 = (canvas2.height * pdfWidth) / canvas2.width;
-                    pdf.addImage(imgData2, 'PNG', 0, 0, pdfWidth, imgHeight2);
-                }
-
-                pdf.save(`ecotech-analytics-report-${format(new Date(), 'yyyy-MM-dd')}.pdf`);
-            } catch (err) {
-                console.error("PDF Gen Error", err);
-            } finally {
-                setIsGeneratingPdf(false);
+            for (let i = 1; i <= 3; i++) {
+                const ref = [page1Ref, page2Ref, page3Ref][i - 1];
+                if (!ref.current) continue;
+                const canvas = await html2canvas(ref.current, {
+                    scale: 2, useCORS: true, backgroundColor: "#ffffff", logging: false,
+                    width: 1100, windowWidth: 1100
+                });
+                const imgData = canvas.toDataURL("image/png");
+                const imgH = (canvas.height * W) / canvas.width;
+                if (i > 1) pdf.addPage();
+                pdf.addImage(imgData, "PNG", 0, 0, W, imgH);
             }
-        }, 500); // 500ms delay to ensure charts render in new layout
+
+            pdf.save(`ecotech-report-${format(new Date(), "yyyy-MM-dd")}.pdf`);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setGenerating(false);
+        }
     };
 
+    // ─────────────────────────────────────────────────────────────────────
+    // LOADING
+    // ─────────────────────────────────────────────────────────────────────
     if (loading) {
         return (
-            <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-            </div>
-        );
-    }
-
-    // --- Render Logic ---
-
-    // If generating PDF, render the "Print View"
-    if (isGeneratingPdf) {
-        return (
-            <div className="bg-white text-slate-900 font-sans min-h-screen p-0 m-0">
-                {/* PAGE 1 */}
-                <div ref={page1Ref} className="p-8 space-y-8 max-w-[1200px] mx-auto min-h-[1100px] bg-white">
-                    {/* Branding Header */}
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-4 border-slate-900 pb-6 mb-10">
-                        <div>
-                            <h2 className="text-5xl font-extrabold text-slate-900 tracking-tight">EcoTech Windows & Doors</h2>
-                            <div className="flex items-center gap-3 mt-4">
-                                <span className="bg-blue-600 text-white text-sm font-bold px-4 py-1.5 rounded-full uppercase tracking-wider">AI Voice Agent Report</span>
-                                <span className="text-slate-500 font-medium text-lg">
-                                    {format(CAMPAIGN_START, 'MMM d, yyyy')} - {format(new Date(), 'MMM d, yyyy')}
-                                </span>
-                            </div>
-                        </div>
-                        <div className="text-right mt-6 md:mt-0">
-                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Powered By</p>
-                            <p className="text-2xl font-bold text-slate-900">Simvana Digital Agency</p>
-                            <div className="flex items-center justify-end gap-2 text-slate-600 font-medium mt-1">
-                                <Phone className="w-5 h-5" />
-                                <span className="text-lg">+1 (289) 816-6495</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* KPI Stats Grid */}
-                    <div className="grid grid-cols-4 gap-6">
-                        <StatCard title="Total Calls" value={totalCallsCount.toLocaleString()} subtext="Since Jan 22" icon={Phone} colorClass="bg-blue-100 text-blue-600" />
-                        <StatCard title="Conversion Rate" value={`${conversionRate}%`} subtext={`${totalBooked} Booked`} icon={TrendingUp} colorClass="bg-purple-100 text-purple-600" />
-                        <StatCard title="Pos. Sentiment" value={positiveSentimentCount.toLocaleString()} subtext={`${totalCallsCount > 0 ? ((positiveSentimentCount / totalCallsCount) * 100).toFixed(1) : 0}%`} icon={ThumbsUp} colorClass="bg-emerald-100 text-emerald-600" />
-                        <StatCard title="Neg. Sentiment" value={negativeSentimentCount.toLocaleString()} subtext={`${totalCallsCount > 0 ? ((negativeSentimentCount / totalCallsCount) * 100).toFixed(1) : 0}%`} icon={ThumbsDown} colorClass="bg-red-100 text-red-600" />
-                    </div>
-
-                    {/* Stats Row 2 */}
-                    <div className="grid grid-cols-3 gap-6">
-                        <StatCard title="Busiest Booking Day" value={bestBookingDay.day} subtext={`${bestBookingDay.count} bookings`} icon={CalendarCheck} colorClass="bg-indigo-100 text-indigo-600" />
-                        <StatCard title="Busiest Lead Day" value={bestLeadDay.day} subtext={`${bestLeadDay.count} new leads`} icon={Zap} colorClass="bg-orange-100 text-orange-600" />
-                        <StatCard title="Queue Workload" value={totalFutureCallbacks.toLocaleString()} subtext="Pending callbacks" icon={Clock} colorClass="bg-amber-100 text-amber-600" />
-                    </div>
-
-                    {/* Daily Volume Chart */}
-                    <div className="bg-slate-50 rounded-3xl p-8 border border-slate-200">
-                        <h3 className="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-3">
-                            <Activity className="w-6 h-6 text-blue-500" />
-                            Daily Call Volume
-                        </h3>
-                        <div className="h-[400px] w-full">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={dailyCallVolumeData}>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.2} stroke="#000" />
-                                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#334155', fontSize: 14 }} dy={10} minTickGap={30} />
-                                    <YAxis axisLine={false} tickLine={false} tick={{ fill: '#334155', fontSize: 14 }} allowDecimals={false} />
-                                    <Bar dataKey="calls" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </div>
-                    </div>
-                </div>
-
-                {/* PAGE 2 */}
-                <div ref={page2Ref} className="p-8 space-y-8 max-w-[1200px] mx-auto min-h-[1100px] bg-white break-before-page">
-                    {/* Page 2 Header/Branding Strip */}
-                    <div className="border-b border-slate-200 pb-4 flex justify-between items-center opacity-50">
-                        <span className="font-bold text-slate-400 uppercase tracking-widest text-sm">EcoTech Windows & Doors - Analytics Report</span>
-                        <span className="font-bold text-slate-400 uppercase tracking-widest text-sm">Page 2</span>
-                    </div>
-
-                    {/* New Opportunities Chart */}
-                    <div className="bg-slate-50 rounded-3xl p-8 border border-slate-200">
-                        <h3 className="text-2xl font-bold text-slate-900 mb-6 flex items-center">
-                            <Zap className="w-6 h-6 text-orange-500 mr-4" />
-                            New Opportunities per Day
-                        </h3>
-                        <div className="flex justify-center">
-                            <AreaChart width={900} height={300} data={opportunitiesData}>
-                                <defs>
-                                    <linearGradient id="colorOppsPrint" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#f97316" stopOpacity={0.5} />
-                                        <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
-                                    </linearGradient>
-                                </defs>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.2} stroke="#000" />
-                                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#334155', fontSize: 14 }} dy={10} />
-                                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#334155', fontSize: 14 }} allowDecimals={false} />
-                                <Area type="monotone" dataKey="leads" stroke="#f97316" strokeWidth={4} fillOpacity={1} fill="url(#colorOppsPrint)" isAnimationActive={false} />
-                            </AreaChart>
-                        </div>
-                    </div>
-
-                    {/* Callbacks History Chart */}
-                    <div className="bg-slate-50 rounded-3xl p-8 border border-slate-200">
-                        <h3 className="text-2xl font-bold text-slate-900 mb-6 flex items-center">
-                            <CalendarIcon className="w-6 h-6 text-indigo-500 mr-4" />
-                            Callback Execution History
-                        </h3>
-                        <div className="flex justify-center">
-                            <AreaChart width={900} height={300} data={callbackHistoryData}>
-                                <defs>
-                                    <linearGradient id="colorCallbacksPrint" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.5} />
-                                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                                    </linearGradient>
-                                </defs>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.2} stroke="#000" />
-                                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#334155', fontSize: 14 }} dy={10} />
-                                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#334155', fontSize: 14 }} allowDecimals={false} />
-                                <Area type="monotone" dataKey="callbacks" stroke="#6366f1" strokeWidth={4} fillOpacity={1} fill="url(#colorCallbacksPrint)" isAnimationActive={false} />
-                            </AreaChart>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-8">
-                        {/* Top Performers (Expanded - No Scroll) */}
-                        <div className="bg-slate-50 rounded-3xl p-8 border border-slate-200">
-                            <h3 className="text-2xl font-bold text-slate-900 mb-6 flex items-center">
-                                <Users className="w-6 h-6 text-emerald-500 mr-4" />
-                                Top Sales Performers
-                            </h3>
-                            <div className="space-y-4">
-                                {salespersonData.length > 0 ? (
-                                    salespersonData.map((agent, idx) => (
-                                        <div key={idx} className="flex items-center justify-between p-4 rounded-xl bg-white border border-slate-200 shadow-sm">
-                                            <div className="flex items-center gap-4">
-                                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-base ${idx === 0 ? 'bg-yellow-100 text-yellow-700' : idx === 1 ? 'bg-slate-200 text-slate-700' : 'bg-orange-100 text-orange-700'}`}>
-                                                    {idx + 1}
-                                                </div>
-                                                <span className="font-bold text-slate-700 text-lg">{agent.name}</span>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-2xl font-extrabold text-emerald-600">{agent.value}</span>
-                                                <span className="text-sm text-slate-400 font-medium">Bookings</span>
-                                            </div>
-                                        </div>
-                                    ))
-                                ) : (
-                                    <p className="text-slate-400">No data.</p>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Outcome & Summary */}
-                        <div className="space-y-6">
-                            {/* Small Outcome Pie */}
-                            <div className="bg-slate-50 rounded-3xl p-6 border border-slate-200 flex flex-col items-center">
-                                <h3 className="text-xl font-bold text-slate-900 mb-4 w-full text-left flex items-center">
-                                    <BarChart3 className="w-5 h-5 text-purple-500 mr-3" />
-                                    Outcome Dist.
-                                </h3>
-                                <div className="w-full flex items-center justify-center gap-4">
-                                    {/* Fixed PieChart for PDF */}
-                                    <RechartsPieChart width={220} height={220}>
-                                        <Pie data={outcomeData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={2} dataKey="value" isAnimationActive={false}>
-                                            {outcomeData.map((_: any, index: any) => (
-                                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} strokeWidth={0} />
-                                            ))}
-                                        </Pie>
-                                    </RechartsPieChart>
-
-                                    <div className="pl-4 space-y-2 flex-1">
-                                        {outcomeData.slice(0, 5).map((entry: any, index: any) => (
-                                            <div key={index} className="flex items-center text-xs justify-between">
-                                                <div className="flex items-center gap-1">
-                                                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
-                                                    <span className="truncate max-w-[100px] font-medium">{entry.name}</span>
-                                                </div>
-                                                <span className="font-bold text-slate-700">{entry.value}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Summary Block */}
-                            <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-3xl p-6 text-white shadow-lg">
-                                <h3 className="text-2xl font-bold mb-4">Summary</h3>
-                                <div className="space-y-4 text-blue-50 text-sm leading-relaxed">
-                                    <p>
-                                        Jan 22 - Present: <strong>{totalCallsCount.toLocaleString()} calls</strong> processed.
-                                        <strong> {totalBooked} appointments</strong> from <strong>{totalOpportunities.toLocaleString()} leads</strong>.
-                                    </p>
-                                    <p>Conversion: <strong>{conversionRate}%</strong></p>
-                                    <div className="flex gap-2 mt-4 pt-4 border-t border-white/20">
-                                        <span className="bg-white/10 px-2 py-1 rounded text-xs">👍 {positiveSentimentCount} Pos</span>
-                                        <span className="bg-white/10 px-2 py-1 rounded text-xs">👎 {negativeSentimentCount} Neg</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+            <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+                <div className="text-center">
+                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto mb-3" />
+                    <p className="text-sm text-slate-500">Loading report data…</p>
                 </div>
             </div>
         );
     }
 
-    // Default Render (Screen)
+    // ─────────────────────────────────────────────────────────────────────
+    // PDF PRINT VIEW (hidden off-screen but rendered)
+    // ─────────────────────────────────────────────────────────────────────
+    const pdfView = (
+        <div style={{ position: "fixed", top: -9999, left: -9999, width: 1100, zIndex: -1, fontFamily: "Georgia, serif" }}>
+            {/* ── PAGE 1 ── */}
+            <PdfPage pageRef={page1Ref}>
+                <PdfHeader page={1} total={3} />
+
+                {/* KPI Row 1 */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginBottom: 24 }}>
+                    {[
+                        { label: "Total Calls", value: totalCalls.toLocaleString(), sub: "Feb 22 – Mar 13" },
+                        { label: "Opportunities", value: totalOpportunities.toLocaleString(), sub: "Unique leads" },
+                        { label: "Appointments Booked", value: totalBooked.toLocaleString(), sub: `${convRate}% conversion` },
+                        { label: "Avg Calls / Booking", value: avgCallsBeforeBooking, sub: "Before appointment" },
+                    ].map(k => (
+                        <div key={k.label} style={{ border: "1px solid #e2e8f0", borderTop: "3px solid #2563eb", padding: 16, borderRadius: 4 }}>
+                            <div style={{ fontSize: 9, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1 }}>{k.label}</div>
+                            <div style={{ fontSize: 28, fontWeight: 800, color: "#0f172a", margin: "8px 0 4px" }}>{k.value}</div>
+                            <div style={{ fontSize: 10, color: "#64748b" }}>{k.sub}</div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* KPI Row 2 */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginBottom: 28 }}>
+                    {[
+                        { label: "Pos/Neutral Sentiment", value: `${posPct}%`, sub: `${posCalls} calls` },
+                        { label: "Negative Sentiment", value: `${negPct}%`, sub: `${negCalls} calls` },
+                        { label: "Never Answered", value: neverAnsweredCount.toLocaleString(), sub: "All calls = no answer" },
+                        { label: "Best Booking Day", value: bestDowName, sub: `${bestDowCount} bookings` },
+                    ].map(k => (
+                        <div key={k.label} style={{ border: "1px solid #e2e8f0", borderTop: "3px solid #0891b2", padding: 16, borderRadius: 4 }}>
+                            <div style={{ fontSize: 9, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1 }}>{k.label}</div>
+                            <div style={{ fontSize: 28, fontWeight: 800, color: "#0f172a", margin: "8px 0 4px" }}>{k.value}</div>
+                            <div style={{ fontSize: 10, color: "#64748b" }}>{k.sub}</div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Daily Volume Chart */}
+                <div style={{ marginBottom: 24 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12, borderBottom: "1px solid #f1f5f9", paddingBottom: 8 }}>Daily Call & Booking Volume</div>
+                    <BarChart width={988} height={220} data={dailyCallData} barGap={2}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false} minTickGap={20} />
+                        <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                        <Bar dataKey="calls" fill="#2563eb" radius={[2, 2, 0, 0]} name="Calls" isAnimationActive={false} />
+                        <Bar dataKey="booked" fill="#16a34a" radius={[2, 2, 0, 0]} name="Booked" isAnimationActive={false} />
+                        <Legend wrapperStyle={{ fontSize: 11 }} />
+                    </BarChart>
+                </div>
+
+                {/* Disconnect Reasons Table */}
+                <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12, borderBottom: "1px solid #f1f5f9", paddingBottom: 8 }}>Call Outcome Breakdown</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                        {disconnectData.slice(0, 9).map((item, i) => (
+                            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", backgroundColor: "#f8fafc", borderRadius: 4, border: "1px solid #e2e8f0" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: COLORS[i % COLORS.length] }} />
+                                    <span style={{ fontSize: 11, color: "#334155" }}>{item.name}</span>
+                                </div>
+                                <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>{item.value}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </PdfPage>
+
+            {/* ── PAGE 2 ── */}
+            <PdfPage pageRef={page2Ref}>
+                <PdfHeader page={2} total={3} />
+
+                {/* Two charts side by side */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 28 }}>
+                    <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12, borderBottom: "1px solid #f1f5f9", paddingBottom: 8 }}>Best Time to Reach Prospects</div>
+                        <BarChart width={460} height={200} data={hourlyData}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                            <XAxis dataKey="hour" tick={{ fontSize: 9, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                            <YAxis tick={{ fontSize: 9, fill: "#94a3b8" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                            <Bar dataKey="answered" fill="#0891b2" radius={[2, 2, 0, 0]} isAnimationActive={false} />
+                        </BarChart>
+                    </div>
+                    <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12, borderBottom: "1px solid #f1f5f9", paddingBottom: 8 }}>Bookings by Day of Week</div>
+                        <BarChart width={460} height={200} data={dowData}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                            <XAxis dataKey="day" tick={{ fontSize: 9, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                            <YAxis tick={{ fontSize: 9, fill: "#94a3b8" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                            <Bar dataKey="bookings" fill="#7c3aed" radius={[2, 2, 0, 0]} isAnimationActive={false} />
+                        </BarChart>
+                    </div>
+                </div>
+
+                {/* Sales Reps Table */}
+                <div style={{ marginBottom: 28 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12, borderBottom: "1px solid #f1f5f9", paddingBottom: 8 }}>Top Sales Representatives</div>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                        <thead>
+                            <tr style={{ backgroundColor: "#f8fafc" }}>
+                                <th style={{ padding: "8px 12px", textAlign: "left", color: "#64748b", fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>#</th>
+                                <th style={{ padding: "8px 12px", textAlign: "left", color: "#64748b", fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>Name</th>
+                                <th style={{ padding: "8px 12px", textAlign: "left", color: "#64748b", fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>Region</th>
+                                <th style={{ padding: "8px 12px", textAlign: "right", color: "#64748b", fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>Bookings</th>
+                                <th style={{ padding: "8px 12px", textAlign: "right", color: "#64748b", fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>Close %</th>
+                                <th style={{ padding: "8px 12px", textAlign: "right", color: "#64748b", fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>Score</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {displayedSalesReps.map((rep, i) => (
+                                <tr key={i} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                                    <td style={{ padding: "10px 12px", color: "#94a3b8", fontWeight: 700 }}>{i + 1}</td>
+                                    <td style={{ padding: "10px 12px", color: "#0f172a", fontWeight: 600 }}>{rep.name}</td>
+                                    <td style={{ padding: "10px 12px", color: "#64748b", fontSize: 11 }}>{rep.region || "—"}</td>
+                                    <td style={{ padding: "10px 12px", textAlign: "right", color: "#16a34a", fontWeight: 700 }}>{rep.bookings}</td>
+                                    <td style={{ padding: "10px 12px", textAlign: "right", color: "#64748b", fontSize: 11 }}>{rep.closingRate > 0 ? `${rep.closingRate.toFixed(1)}%` : "—"}</td>
+                                    <td style={{ padding: "10px 12px", textAlign: "right", color: "#2563eb", fontWeight: 700 }}>{rep.score > 0 ? Math.round(rep.score).toLocaleString() : "—"}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+
+                {/* Top Editors Table */}
+                <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12, borderBottom: "1px solid #f1f5f9", paddingBottom: 8 }}>Most Active System Users (Activity Log)</div>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                        <thead>
+                            <tr style={{ backgroundColor: "#f8fafc" }}>
+                                <th style={{ padding: "8px 12px", textAlign: "left", color: "#64748b", fontWeight: 700, fontSize: 10, textTransform: "uppercase" }}>#</th>
+                                <th style={{ padding: "8px 12px", textAlign: "left", color: "#64748b", fontWeight: 700, fontSize: 10, textTransform: "uppercase" }}>User</th>
+                                <th style={{ padding: "8px 12px", textAlign: "right", color: "#64748b", fontWeight: 700, fontSize: 10, textTransform: "uppercase" }}>Total Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {topEditors.map((e, i) => (
+                                <tr key={i} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                                    <td style={{ padding: "10px 12px", color: "#94a3b8", fontWeight: 700 }}>{i + 1}</td>
+                                    <td style={{ padding: "10px 12px", color: "#0f172a", fontWeight: 600 }}>{e.name}</td>
+                                    <td style={{ padding: "10px 12px", textAlign: "right", color: "#d97706", fontWeight: 700 }}>{e.count}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </PdfPage>
+
+            {/* ── PAGE 3 — Summary ── */}
+            <PdfPage pageRef={page3Ref}>
+                <PdfHeader page={3} total={3} />
+
+                {/* Sentiment Pie */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 28 }}>
+                    <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12, borderBottom: "1px solid #f1f5f9", paddingBottom: 8 }}>Sentiment Distribution</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
+                            <RechartsPieChart width={200} height={180}>
+                                <Pie data={[
+                                    { name: "Positive/Neutral", value: posCalls },
+                                    { name: "Negative", value: negCalls },
+                                    { name: "Unknown", value: Math.max(0, totalCalls - posCalls - negCalls) },
+                                ]} cx="50%" cy="50%" innerRadius={50} outerRadius={75} dataKey="value" isAnimationActive={false}>
+                                    <Cell fill="#16a34a" strokeWidth={0} />
+                                    <Cell fill="#dc2626" strokeWidth={0} />
+                                    <Cell fill="#e2e8f0" strokeWidth={0} />
+                                </Pie>
+                            </RechartsPieChart>
+                            <div style={{ fontSize: 12 }}>
+                                <div style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                                    <div style={{ width: 10, height: 10, borderRadius: "50%", backgroundColor: "#16a34a" }} />
+                                    <span style={{ color: "#334155" }}>Positive/Neutral: <strong>{posPct}%</strong></span>
+                                </div>
+                                <div style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                                    <div style={{ width: 10, height: 10, borderRadius: "50%", backgroundColor: "#dc2626" }} />
+                                    <span style={{ color: "#334155" }}>Negative: <strong>{negPct}%</strong></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Key Findings */}
+                    <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12, borderBottom: "1px solid #f1f5f9", paddingBottom: 8 }}>Key Findings</div>
+                        <div style={{ fontSize: 12, color: "#334155", lineHeight: 1.8 }}>
+                            <p>• <strong>{totalCalls.toLocaleString()}</strong> total calls placed between Feb 22 – Mar 13, 2026.</p>
+                            <p>• <strong>{totalOpportunities.toLocaleString()}</strong> unique opportunities generated, resulting in <strong>{totalBooked}</strong> booked appointments ({convRate}% conversion).</p>
+                            <p>• Prospects are most reachable at <strong>{bestHourStr}</strong>. Most bookings occur on <strong>{bestDowName}s</strong>.</p>
+                            <p>• <strong>{neverAnsweredCount}</strong> leads never answered across all attempts.</p>
+                            <p>• On average, it takes <strong>{avgCallsBeforeBooking}</strong> calls before an appointment is booked.</p>
+                            <p>• Sentiment: {posPct}% positive/neutral, {negPct}% negative.</p>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Outcome Dist Chart full width */}
+                <div style={{ marginBottom: 28 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12, borderBottom: "1px solid #f1f5f9", paddingBottom: 8 }}>Full Outcome Distribution</div>
+                    <BarChart width={988} height={200} data={disconnectData} layout="vertical">
+                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                        <XAxis type="number" tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                        <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: "#334155" }} axisLine={false} tickLine={false} width={120} />
+                        <Bar dataKey="value" radius={[0, 2, 2, 0]} isAnimationActive={false}>
+                            {disconnectData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                        </Bar>
+                    </BarChart>
+                </div>
+
+                {/* Footer */}
+                <div style={{ marginTop: 40, paddingTop: 16, borderTop: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", fontSize: 10, color: "#94a3b8" }}>
+                    <span>EcoTech Windows & Doors — AI Voice Agent Report — Confidential</span>
+                    <span>Generated {format(new Date(), "MMMM d, yyyy")} by Simvana Digital Agency</span>
+                </div>
+            </PdfPage>
+        </div>
+    );
+
+    // ─────────────────────────────────────────────────────────────────────
+    // SCREEN VIEW
+    // ─────────────────────────────────────────────────────────────────────
     return (
-        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 font-sans text-slate-900 dark:text-slate-100 pb-20">
+        <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+            {pdfView}
             <Header />
 
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-                {/* Header Section */}
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div className="max-w-6xl mx-auto px-6 py-8">
+                {/* Page Header */}
+                <div className="flex items-center justify-between mb-8">
                     <div>
-                        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-                            Analytics Report
-                        </h1>
-                        <p className="text-slate-500 mt-1">
-                            Data from Jan 22, 2026 to Present
-                        </p>
+                        <h1 className="text-xl font-bold text-slate-900">Voice Agent Report</h1>
+                        <p className="text-sm text-slate-500 mt-0.5">Feb 22 – Mar 13, 2026 &nbsp;·&nbsp; EcoTech Windows & Doors</p>
                     </div>
-                    {/* PDF Button */}
                     <button
                         onClick={generatePDF}
-                        disabled={loading || isGeneratingPdf}
-                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium shadow-lg hover:shadow-blue-500/25 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={generating}
+                        className="flex items-center gap-2 bg-slate-900 hover:bg-slate-700 text-white text-sm px-4 py-2 rounded font-medium transition-colors disabled:opacity-50"
                     >
-                        {isGeneratingPdf ? (
-                            <>
-                                <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></div>
-                                Generating...
-                            </>
+                        {generating ? (
+                            <><RefreshCw className="w-4 h-4 animate-spin" /> Generating…</>
                         ) : (
-                            <>
-                                <Download className="w-5 h-5" />
-                                Download PDF Report
-                            </>
+                            <><Download className="w-4 h-4" /> Download PDF</>
                         )}
                     </button>
                 </div>
 
-                {/* Main Screen Layout */}
-                <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-xl">
+                {/* KPI Grid Row 1 */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                    <KPI label="Total Calls" value={totalCalls.toLocaleString()} sub="Feb 22 – Mar 13" icon={Phone} accent="#2563eb" />
+                    <KPI label="Opportunities" value={totalOpportunities.toLocaleString()} sub="Unique leads" icon={Zap} accent="#7c3aed" />
+                    <KPI label="Booked" value={totalBooked.toLocaleString()} sub={`${convRate}% conversion rate`} icon={CheckCircle2} accent="#16a34a" />
+                    <KPI label="Avg Calls / Booking" value={avgCallsBeforeBooking} sub="Before appointment booked" icon={TrendingUp} accent="#d97706" />
+                </div>
 
-                    {/* KPI Section - Row 1 */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                        <StatCard title="Total Calls" value={totalCallsCount.toLocaleString()} subtext="Since Jan 22" icon={Phone} colorClass="bg-blue-100 text-blue-600 dark:bg-blue-900/30" delay={0} />
-                        <StatCard title="Conversion Rate" value={`${conversionRate}%`} subtext={`${totalBooked} Booked / ${totalOpportunities.toLocaleString()} Leads`} icon={TrendingUp} colorClass="bg-purple-100 text-purple-600 dark:bg-purple-900/30" delay={50} />
-                        <StatCard title="Positive Sentiment" value={positiveSentimentCount.toLocaleString()} subtext={`${totalCallsCount > 0 ? ((positiveSentimentCount / totalCallsCount) * 100).toFixed(1) : 0}% (Pos+Neu)`} icon={ThumbsUp} colorClass="bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30" delay={100} />
-                        <StatCard title="Negative Sentiment" value={negativeSentimentCount.toLocaleString()} subtext={`${totalCallsCount > 0 ? ((negativeSentimentCount / totalCallsCount) * 100).toFixed(1) : 0}% of Total`} icon={ThumbsDown} colorClass="bg-red-100 text-red-600 dark:bg-red-900/30" delay={150} />
+                {/* KPI Grid Row 2 */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                    <KPI label="Pos/Neutral Sentiment" value={`${posPct}%`} sub={`${posCalls} calls`} icon={ThumbsUp} accent="#16a34a" />
+                    <KPI label="Negative Sentiment" value={`${negPct}%`} sub={`${negCalls} calls`} icon={ThumbsDown} accent="#dc2626" />
+                    <KPI label="Never Answered" value={neverAnsweredCount.toLocaleString()} sub="All retell attempts = no answer" icon={PhoneOff} accent="#94a3b8" />
+                    <KPI label="Best Booking Day" value={bestDowName} sub={`${bestDowCount} bookings on record`} icon={CalendarIcon} accent="#0891b2" />
+                </div>
+
+                {/* Daily Volume Chart */}
+                <div className="bg-white rounded border border-slate-200 p-6 mb-4">
+                    <SectionTitle>Daily Call & Booking Volume</SectionTitle>
+                    <ResponsiveContainer width="100%" height={220}>
+                        <BarChart data={dailyCallData} barGap={2}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                            <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} minTickGap={20} />
+                            <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                            <Tooltip contentStyle={{ borderRadius: 4, border: "1px solid #e2e8f0", fontSize: 12 }} />
+                            <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+                            <Bar dataKey="calls" fill="#2563eb" radius={[2, 2, 0, 0]} name="Calls" />
+                            <Bar dataKey="booked" fill="#16a34a" radius={[2, 2, 0, 0]} name="Booked" />
+                        </BarChart>
+                    </ResponsiveContainer>
+                </div>
+
+                {/* Two charts */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div className="bg-white rounded border border-slate-200 p-6">
+                        <SectionTitle>Best Time to Reach Prospects</SectionTitle>
+                        <ResponsiveContainer width="100%" height={180}>
+                            <BarChart data={hourlyData}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                <XAxis dataKey="hour" tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                                <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 4, border: "1px solid #e2e8f0" }} />
+                                <Bar dataKey="answered" fill="#0891b2" radius={[2, 2, 0, 0]} name="Answered" />
+                            </BarChart>
+                        </ResponsiveContainer>
+                        <p className="text-xs text-slate-400 mt-2">Peak: <span className="font-semibold text-slate-600">{bestHourStr}</span></p>
                     </div>
 
-                    {/* KPI Section - Row 2 */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                        <StatCard title="Busiest Booking Day" value={bestBookingDay.day} subtext={`Peak activity: ${bestBookingDay.count} bookings`} icon={CalendarCheck} colorClass="bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30" delay={200} />
-                        <StatCard title="Busiest Lead Day" value={bestLeadDay.day} subtext={`High volume: ${bestLeadDay.count} new leads`} icon={Zap} colorClass="bg-orange-100 text-orange-600 dark:bg-orange-900/30" delay={250} />
-                        <StatCard title="Queue Workload" value={totalFutureCallbacks.toLocaleString()} subtext="Pending callbacks" icon={Clock} colorClass="bg-amber-100 text-amber-600 dark:bg-amber-900/30" delay={300} />
+                    <div className="bg-white rounded border border-slate-200 p-6">
+                        <SectionTitle>Bookings by Day of Week</SectionTitle>
+                        <ResponsiveContainer width="100%" height={180}>
+                            <BarChart data={dowData}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                <XAxis dataKey="day" tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                                <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 4, border: "1px solid #e2e8f0" }} />
+                                <Bar dataKey="bookings" fill="#7c3aed" radius={[2, 2, 0, 0]} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                        <p className="text-xs text-slate-400 mt-2">Highest: <span className="font-semibold text-slate-600">{bestDowName}</span></p>
                     </div>
+                </div>
 
-                    {/* Chart Row: Volumes */}
-                    <div className="grid grid-cols-1 lg:grid-cols-1 gap-6 mb-8">
-                        <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm">
-                            <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
-                                <Activity className="w-5 h-5 text-blue-500" />
-                                Daily Call Volume (Jan 22 - Present)
-                            </h3>
-                            <div className="h-[300px] w-full">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={dailyCallVolumeData}>
-                                        <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.1} />
-                                        <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} dy={10} minTickGap={30} />
-                                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} allowDecimals={false} />
-                                        <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '12px', color: '#fff' }} cursor={{ fill: 'transparent' }} />
-                                        <Bar dataKey="calls" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                                    </BarChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Chart Row: Opportunities */}
-                    <div className="grid grid-cols-1 lg:grid-cols-1 gap-6 mb-8">
-                        <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm">
-                            <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
-                                <Zap className="w-5 h-5 text-orange-500" />
-                                New Opportunities per Day
-                            </h3>
-                            <div className="h-[300px] w-full">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <AreaChart data={opportunitiesData}>
-                                        <defs>
-                                            <linearGradient id="colorOpps" x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="5%" stopColor="#f97316" stopOpacity={0.3} />
-                                                <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
-                                            </linearGradient>
-                                        </defs>
-                                        <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.1} />
-                                        <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} dy={10} minTickGap={30} />
-                                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} allowDecimals={false} />
-                                        <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '12px', color: '#fff' }} cursor={{ fill: 'transparent' }} />
-                                        <Area type="monotone" dataKey="leads" stroke="#f97316" strokeWidth={3} fillOpacity={1} fill="url(#colorOpps)" />
-                                    </AreaChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Chart Row 2: Queue & Sales */}
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-                        {/* Executed Callbacks Chart */}
-                        <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm">
-                            <div className="flex items-center justify-between mb-6">
-                                <div>
-                                    <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                                        <CalendarIcon className="w-5 h-5 text-indigo-500" />
-                                        Callback Execution History
-                                    </h3>
-                                    <p className="text-sm text-slate-500">Callbacks triggered per day</p>
+                {/* Call Outcome Breakdown */}
+                <div className="bg-white rounded border border-slate-200 p-6 mb-4">
+                    <SectionTitle>Call Outcome Breakdown</SectionTitle>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        {disconnectData.map((item, i) => (
+                            <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded border border-slate-100">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                                    <span className="text-sm text-slate-600">{item.name}</span>
                                 </div>
+                                <span className="text-sm font-bold text-slate-900">{item.value}</span>
                             </div>
-                            <div className="h-[300px] w-full">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <AreaChart data={callbackHistoryData}>
-                                        <defs>
-                                            <linearGradient id="colorCallbacks" x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
-                                                <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                                            </linearGradient>
-                                        </defs>
-                                        <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.1} />
-                                        <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} dy={10} />
-                                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} allowDecimals={false} />
-                                        <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '12px', color: '#fff' }} />
-                                        <Area type="monotone" dataKey="callbacks" stroke="#6366f1" strokeWidth={3} fillOpacity={1} fill="url(#colorCallbacks)" />
-                                    </AreaChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </div>
+                        ))}
+                    </div>
+                </div>
 
-                        {/* Top Performers */}
-                        <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col">
-                            <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
-                                <Users className="w-5 h-5 text-emerald-500" />
-                                Top Sales Performers
-                            </h3>
-                            <div className="flex-1 space-y-4 overflow-y-auto max-h-[300px] pr-2 custom-scrollbar">
-                                {salespersonData.length > 0 ? (
-                                    salespersonData.map((agent, idx) => (
-                                        <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
-                                            <div className="flex items-center gap-3">
-                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-base ${idx === 0 ? 'bg-yellow-100 text-yellow-700' : idx === 1 ? 'bg-slate-200 text-slate-700' : 'bg-orange-100 text-orange-700'}`}>
-                                                    {idx + 1}
-                                                </div>
-                                                <span className="font-medium text-slate-700 dark:text-slate-200 truncate max-w-[120px]" title={agent.name}>{agent.name}</span>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{agent.value}</span>
-                                                <span className="text-xs text-slate-400">Bookings</span>
-                                            </div>
+                {/* Sales Reps & Editors */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    {/* Sales Reps */}
+                    <div className="bg-white rounded border border-slate-200 p-6">
+                        <SectionTitle>Top Sales Representatives</SectionTitle>
+                        <div className="space-y-2">
+                            {displayedSalesReps.length > 0 ? displayedSalesReps.map((rep, i) => (
+                                <div key={i} className="py-2 border-b border-slate-50 last:border-0">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-xs font-bold text-slate-300 w-4">{i + 1}</span>
+                                            <span className="text-sm font-medium text-slate-800">{rep.name}</span>
+                                            {rep.region && <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{rep.region}</span>}
                                         </div>
-                                    ))
-                                ) : (
-                                    <div className="flex flex-col items-center justify-center h-full text-slate-400 py-10">
-                                        <HelpCircle className="w-10 h-10 mb-2 opacity-20" />
-                                        <p>No sales data available yet.</p>
+                                        <div className="flex items-center gap-3 text-sm">
+                                            <span className="text-green-600 font-semibold">{rep.bookings} booked</span>
+                                            {rep.closingRate > 0 && <span className="text-slate-400 text-xs">{rep.closingRate.toFixed(1)}% close</span>}
+                                            {rep.score > 0 && <span className="text-blue-500 text-xs font-mono">{Math.round(rep.score).toLocaleString()}</span>}
+                                        </div>
                                     </div>
-                                )}
-                            </div>
+                                </div>
+                            )) : (
+                                <p className="text-sm text-slate-400">No data available.</p>
+                            )}
                         </div>
                     </div>
 
-                    {/* Outcome Distribution & Additional Stats */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm">
-                            <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
-                                <BarChart3 className="w-5 h-5 text-purple-500" />
-                                Call Outcome Distribution (All Time)
-                            </h3>
-                            <div className="flex flex-col md:flex-row items-center gap-8 h-[300px]">
-                                <div className="w-full md:w-1/2 h-full">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <RechartsPieChart>
-                                            <Pie data={outcomeData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
-                                                {outcomeData.map((_: any, index: any) => (
-                                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} strokeWidth={0} />
-                                                ))}
-                                            </Pie>
-                                            <Tooltip />
-                                        </RechartsPieChart>
-                                    </ResponsiveContainer>
+                    {/* Top Editors */}
+                    <div className="bg-white rounded border border-slate-200 p-6">
+                        <SectionTitle>Most Active System Users</SectionTitle>
+                        <div className="space-y-2">
+                            {topEditors.length > 0 ? topEditors.map((e, i) => (
+                                <div key={i} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-xs font-bold text-slate-300 w-4">{i + 1}</span>
+                                        <span className="text-sm font-medium text-slate-800">{e.name}</span>
+                                    </div>
+                                    <span className="text-sm font-semibold text-amber-600">{e.count} actions</span>
                                 </div>
-                                <div className="w-full md:w-1/2 grid grid-cols-1 gap-2 overflow-y-auto max-h-[300px]">
-                                    {outcomeData.map((entry: any, index: any) => (
-                                        <div key={index} className="flex items-center justify-between text-sm p-2 rounded hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
-                                                <span className="text-slate-600 dark:text-slate-300 capitalize">{entry.name}</span>
-                                            </div>
-                                            <span className="font-semibold text-slate-900 dark:text-white">{entry.value}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
+                            )) : (
+                                <p className="text-sm text-slate-400">No activity log data.</p>
+                            )}
                         </div>
+                    </div>
+                </div>
 
-                        {/* Summary Text / Insight */}
-                        <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl p-8 text-white shadow-lg flex flex-col justify-center relative overflow-hidden">
-                            <div className="absolute top-0 right-0 w-64 h-64 bg-white opacity-5 rounded-full -translate-y-1/2 translate-x-1/3 blur-3xl"></div>
-                            <div className="absolute bottom-0 left-0 w-32 h-32 bg-purple-500 opacity-20 rounded-full translate-y-1/3 -translate-x-1/3 blur-2xl"></div>
-
-                            <h3 className="text-2xl font-bold mb-4 relative z-10">Performance Summary</h3>
-                            <div className="space-y-4 relative z-10 text-blue-50">
-                                <p className="leading-relaxed">
-                                    Since January 22, processed <span className="font-bold text-white bg-white/10 px-2 py-0.5 rounded">{totalCallsCount.toLocaleString()} calls</span>.
-                                    <br />
-                                    Overall, <span className="font-bold text-white bg-white/10 px-2 py-0.5 rounded">{totalBooked} appointments</span> have been scheduled from
-                                    <span className="font-bold text-white pl-1">{totalOpportunities.toLocaleString()} leads</span>,
-                                    achieving a conversion rate of <span className="font-bold text-white">{conversionRate}%</span>.
-                                </p>
-                                {salespersonData.length > 0 && (
-                                    <p className="leading-relaxed">
-                                        Top performer: <span className="font-bold text-white border-b border-white/30">{salespersonData[0]?.name || 'N/A'}</span>.
-                                    </p>
-                                )}
-                                <div className="pt-6 mt-6 border-t border-white/20 flex flex-wrap gap-4">
-                                    <div className="flex items-center gap-2 text-sm font-medium opacity-80 bg-black/20 px-3 py-1.5 rounded-full">
-                                        <ThumbsDown className="w-4 h-4 text-red-300" />
-                                        {negativeSentimentCount} Negative
-                                    </div>
-                                    <div className="flex items-center gap-2 text-sm font-medium opacity-80 bg-black/20 px-3 py-1.5 rounded-full">
-                                        <ThumbsUp className="w-4 h-4 text-emerald-300" />
-                                        {positiveSentimentCount} Positive
-                                    </div>
-                                    <div className="flex items-center gap-2 text-sm font-medium opacity-80 bg-black/20 px-3 py-1.5 rounded-full">
-                                        <ActivityIcon className="w-4 h-4 text-blue-300" />
-                                        Data Synced
-                                    </div>
-                                </div>
-                            </div>
+                {/* Summary */}
+                <div className="bg-white rounded border border-slate-200 p-6">
+                    <SectionTitle>Summary</SectionTitle>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm text-slate-600 leading-relaxed">
+                        <div className="space-y-2">
+                            <p>Between February 22 and March 13, 2026, the EcoTech voice agent placed <strong className="text-slate-900">{totalCalls.toLocaleString()} total calls</strong> across <strong className="text-slate-900">{totalOpportunities.toLocaleString()} unique leads</strong>.</p>
+                            <p>Of those, <strong className="text-slate-900">{totalBooked} appointments</strong> were successfully booked — a conversion rate of <strong className="text-slate-900">{convRate}%</strong>.</p>
+                            <p>On average, it takes <strong className="text-slate-900">{avgCallsBeforeBooking} calls</strong> to secure a booking. <strong className="text-slate-900">{neverAnsweredCount} leads</strong> never answered across all retry attempts.</p>
+                        </div>
+                        <div className="space-y-2">
+                            <p>Sentiment analysis shows <strong className="text-green-700">{posPct}% positive/neutral</strong> and <strong className="text-red-600">{negPct}% negative</strong> caller interactions.</p>
+                            <p>Prospects are most reachable at <strong className="text-slate-900">{bestHourStr}</strong>, and bookings are most likely to occur on <strong className="text-slate-900">{bestDowName}s</strong>.</p>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
-    );
-}
-
-function ActivityIcon(props: any) {
-    return (
-        <svg
-            {...props}
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-        >
-            <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-        </svg>
     );
 }

@@ -1,18 +1,18 @@
 import { useEffect, useState, useRef } from "react";
-import { collection, query, getDocs, orderBy, limit, where } from "firebase/firestore";
+import { collection, query, getDocs, orderBy, limit } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { Header } from "../components/Header";
 import {
-    Phone, Calendar as CalendarIcon, Download, Users, BarChart3,
-    Activity, ThumbsDown, ThumbsUp, Zap, Clock, AlertCircle,
-    TrendingUp, PhoneForwarded, PhoneOff, CheckCircle2, XCircle,
-    RefreshCw, Pencil
+    Phone, Calendar as CalendarIcon, Download,
+    ThumbsDown, ThumbsUp, Zap,
+    TrendingUp, PhoneOff, CheckCircle2,
+    RefreshCw
 } from "lucide-react";
-import { format, isSameDay, eachDayOfInterval, isAfter, isBefore, getDay, getHours, parseISO } from "date-fns";
+import { format, isSameDay, eachDayOfInterval, isAfter, isBefore, getDay, getHours } from "date-fns";
 import {
     BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
     PieChart as RechartsPieChart, Pie, Cell, CartesianGrid,
-    AreaChart, Area, Legend
+    Legend
 } from "recharts";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
@@ -97,10 +97,8 @@ export default function Analytics() {
     const [generating, setGenerating] = useState(false);
     const [leads, setLeads] = useState<any[]>([]);
     const [retellCalls, setRetellCalls] = useState<any[]>([]);
-    const [callbacks, setCallbacks] = useState<any[]>([]);
     const [activityLogs, setActivityLogs] = useState<any[]>([]);
     const [salesRankings, setSalesRankings] = useState<any[]>([]);
-    const [recentBookings, setRecentBookings] = useState<any[]>([]);
 
     const page1Ref = useRef<HTMLDivElement>(null);
     const page2Ref = useRef<HTMLDivElement>(null);
@@ -115,9 +113,7 @@ export default function Analytics() {
                 const leadsSnap = await getDocs(query(collection(db, "leads"), orderBy("receivedAt", "desc"), limit(9999)));
                 setLeads(leadsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
-                // Callbacks
-                const cbSnap = await getDocs(query(collection(db, "scheduledCallbacks"), limit(5000)));
-                setCallbacks(cbSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+                // Callbacks mapping removed since it was unused
 
                 // Activity Logs
                 const alSnap = await getDocs(query(collection(db, "activityLogs"), limit(5000)));
@@ -127,9 +123,7 @@ export default function Analytics() {
                 const srSnap = await getDocs(query(collection(db, "salesRankings"), limit(500)));
                 setSalesRankings(srSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
-                // Recent Bookings
-                const rbSnap = await getDocs(query(collection(db, "recentBookings"), limit(500)));
-                setRecentBookings(rbSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+                // Recent Bookings mapping removed since it was unused
 
                 // Retell — use same limit as original working code
                 const rc = await fetchRetellCalls(50000);
@@ -176,11 +170,7 @@ export default function Analytics() {
     const posPct = totalCalls > 0 ? ((posCalls / totalCalls) * 100).toFixed(1) : "0.0";
     const negPct = totalCalls > 0 ? ((negCalls / totalCalls) * 100).toFixed(1) : "0.0";
 
-    // Transferred
-    const transferredCalls = filteredRetell.filter(c => {
-        const outcome = (c.call_analysis?.call_summary || c.disconnection_reason || "").toLowerCase();
-        return outcome.includes("transfer") || c.disconnection_reason === "agent_hangup" && (c.call_analysis?.custom_analysis_data?.transferred === true);
-    }).length;
+    // Transferred computation removed since it was unused
 
     // Booked — from leads
     const bookedLeads = filteredLeads.filter(l => {

@@ -1,5 +1,5 @@
 import { Dialog } from "@radix-ui/react-dialog";
-import { X, BarChart3, TrendingUp, Users, PhoneCall, PhoneOff, Voicemail, CalendarDays, Skull, Loader2, Clock } from "lucide-react";
+import { X, BarChart3, TrendingUp, Users, PhoneCall, Voicemail, CalendarDays, Skull, Loader2, Clock } from "lucide-react";
 import { useState, useEffect } from "react";
 import { fetchRetellCalls } from "../lib/retell";
 import { startOfToday, startOfYesterday } from "date-fns";

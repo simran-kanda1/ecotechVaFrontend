@@ -229,7 +229,6 @@ export default function Analytics() {
     // ── Time of Day Most Answered ─────────────────────────────────────────
     const hourBuckets: Record<number, number> = {};
     filteredRetell.forEach(c => {
-        const s = (c.call_analysis?.user_sentiment || "").toLowerCase();
         const answered = !["dial_no_answer", "voicemail_reached", "dial_busy", "invalid_destination"].includes(c.disconnection_reason || "");
         if (answered && c.start_timestamp) {
             const h = getHours(new Date(c.start_timestamp));

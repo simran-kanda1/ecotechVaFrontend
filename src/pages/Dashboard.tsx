@@ -5,7 +5,8 @@ import { Header } from "../components/Header";
 import { AddLeadModal } from "../components/AddLeadModal";
 import { CallDetailModal } from "../components/CallDetailModal";
 import { DashboardLegendModal } from "../components/DashboardLegendModal";
-import { Loader2, PhoneIncoming, CheckCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Phone, Clock, User, Plus, Search, Trash2, Info } from "lucide-react";
+import { QuickAnalyticsModal } from "../components/QuickAnalyticsModal";
+import { Loader2, PhoneIncoming, CheckCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Phone, Clock, User, Plus, Search, Trash2, Info, BarChart3 } from "lucide-react";
 import { format, isAfter, isBefore, subMonths, addMonths } from "date-fns";
 import { cn, formatPhoneNumber } from "../lib/utils";
 import { MOCK_CALLS } from "../data/mock-data";
@@ -78,6 +79,7 @@ export default function Dashboard() {
     const [selectedCall, setSelectedCall] = useState<Call | null>(null);
     const [isAddLeadOpen, setIsAddLeadOpen] = useState(false);
     const [isLegendOpen, setIsLegendOpen] = useState(false);
+    const [isQuickAnalyticsOpen, setIsQuickAnalyticsOpen] = useState(false);
 
     // Billing Cycle State
     // Default to current date to calculate the relevant billing cycle
@@ -415,6 +417,13 @@ export default function Dashboard() {
                             >
                                 <Info className="w-5 h-5 text-indigo-500" />
                                 <span className="hidden sm:inline">Legend</span>
+                            </button>
+                            <button
+                                onClick={() => setIsQuickAnalyticsOpen(true)}
+                                className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 px-4 py-3 rounded-xl shadow-sm transition-all font-medium"
+                            >
+                                <BarChart3 className="w-5 h-5 text-emerald-500" />
+                                <span className="hidden sm:inline">Today's Analytics</span>
                             </button>
                             <button
                                 onClick={() => setIsAddLeadOpen(true)}
@@ -875,6 +884,13 @@ export default function Dashboard() {
             <DashboardLegendModal
                 isOpen={isLegendOpen}
                 onClose={() => setIsLegendOpen(false)}
+            />
+
+            <QuickAnalyticsModal
+                isOpen={isQuickAnalyticsOpen}
+                onClose={() => setIsQuickAnalyticsOpen(false)}
+                leads={leads}
+                scheduledCallbacks={scheduledCallbacks}
             />
         </div>
     );

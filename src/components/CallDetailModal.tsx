@@ -1,12 +1,12 @@
 import { Dialog } from "@radix-ui/react-dialog";
-import { X, Calendar, User, MessageSquare, Phone, MapPin, FileText, CheckCircle2, Tag, Mail, Music, BrainCircuit, History, Clock, RefreshCw, Loader2, Trash2, AlertTriangle, Save, MessageSquarePlus, Send } from "lucide-react";
+import { X, Calendar, User, MessageSquare, Phone, MapPin, FileText, CheckCircle2, Tag, Mail, Music, BrainCircuit, History, Clock, RefreshCw, Loader2, Trash2, AlertTriangle, Save, MessageSquarePlus, Send, Edit2, Check, PhoneCall } from "lucide-react";
 import { cn } from "../lib/utils";
 import { db } from "../lib/firebase";
 import { addDoc, collection, doc, serverTimestamp, updateDoc, query, where, getDocs, writeBatch, arrayUnion } from "firebase/firestore";
 import { format } from "date-fns";
 import { getNextCallbackTime, formatPhoneNumber } from "../lib/utils";
 import { useState, useEffect } from "react";
-import { fetchCallsForNumber } from "../lib/retell";
+import { fetchCallsForNumber, makeOutboundCall } from "../lib/retell";
 import { logActivity } from "../lib/activity-logger";
 import { auth } from "../lib/firebase";
 
@@ -20,6 +20,7 @@ interface CallDetailModalProps {
 
 export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLeadUpdate }: CallDetailModalProps) {
     const [isRequeuing, setIsRequeuing] = useState(false);
+    const [isCallingNow, setIsCallingNow] = useState(false);
     const [isRemoving, setIsRemoving] = useState(false);
     const [isUrgent, setIsUrgent] = useState(false);
     const [urgentReason, setUrgentReason] = useState("");
@@ -28,6 +29,11 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
     // Status Comment State
     const [statusComment, setStatusComment] = useState("");
     const [isAddingComment, setIsAddingComment] = useState(false);
+
+    // Edit Callback Time State
+    const [isEditingCallback, setIsEditingCallback] = useState(false);
+    const [newCallbackTime, setNewCallbackTime] = useState("");
+    const [isSavingCallback, setIsSavingCallback] = useState(false);
 
     // Call History State
     const [callHistory, setCallHistory] = useState<any[]>([]);
@@ -183,6 +189,62 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
         }
     };
 
+    const handleCallNow = async () => {
+        if (!call || !call.id) return;
+        if (!confirm("Are you sure you want to call this person right now?")) return;
+
+        setIsCallingNow(true);
+        try {
+            const nextTime = new Date(); // Right now
+            const nextAttempt = (callbackAttempt || 0) + 1;
+
+            const leadData = {
+                leadId: call.id,
+                firstName: firstName,
+                lastName: lastName,
+                phone: phone,
+                city: address?.split(',')[1]?.trim() || "",
+                address: address,
+                crmLeadId: crmLeadId || null,
+                retellAgentId: call.retellAgentId || null
+            };
+
+            // 1. Add to scheduledCallbacks
+            const callbackRef = await addDoc(collection(db, "scheduledCallbacks"), {
+                leadId: call.id,
+                scheduledFor: nextTime,
+                attemptNumber: nextAttempt,
+                status: "pending",
+                createdAt: serverTimestamp(),
+                leadData: leadData,
+                lastCallOutcome: "manual_call_now"
+            });
+
+            // 2. Update Lead
+            await updateDoc(doc(db, "leads", call.id), {
+                hasScheduledCallback: true,
+                nextCallbackTime: nextTime,
+                callbackAttemptNumber: nextAttempt,
+                callbackId: callbackRef.id,
+                updatedAt: serverTimestamp()
+            });
+
+            // 3. Dispatch the retell outbound dial natively
+            await makeOutboundCall(phone, call.retellAgentId, call);
+
+            await logActivity("Triggered Immediate Call", `Requested an immediate call for ${formatPhoneNumber(phone)}`, call.id, `${firstName} ${lastName}`);
+
+            alert("Call request sent immediately.");
+            onClose();
+
+        } catch (error) {
+            console.error("Error triggering immediate call:", error);
+            alert("Failed to process call request.");
+        } finally {
+            setIsCallingNow(false);
+        }
+    };
+
     const handleRemoveAllCallbacks = async () => {
         if (!call || !call.id) return;
         if (!confirm("Are you sure you want to PERMANENTLY remove all scheduled callbacks for this lead? This will stop the AI from calling them.")) return;
@@ -293,6 +355,118 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
             alert("Failed to add comment.");
         } finally {
             setIsAddingComment(false);
+        }
+    };
+
+    const handleUpdateCallbackTime = async () => {
+        if (!call || !call.id || !newCallbackTime) return;
+        setIsSavingCallback(true);
+        try {
+            const newDate = new Date(newCallbackTime);
+            
+            // 1. Update Lead
+            await updateDoc(doc(db, "leads", call.id), {
+                nextCallbackTime: newDate,
+                updatedAt: serverTimestamp()
+            });
+
+            // 2. Find and update active scheduled callback
+            const q = query(
+                collection(db, "scheduledCallbacks"),
+                where("leadId", "==", call.id),
+                where("status", "==", "pending")
+            );
+            const snapshot = await getDocs(q);
+            
+            const batch = writeBatch(db);
+            snapshot.forEach((snapDoc) => {
+                batch.update(snapDoc.ref, {
+                    scheduledFor: newDate,
+                    updatedAt: serverTimestamp()
+                });
+            });
+            await batch.commit();
+
+            // Update local object recursively
+            call.nextCallbackTime = newDate;
+            if (call.custom_analysis_data) {
+                call.custom_analysis_data.nextCallbackTime = newDate;
+            }
+
+            if (onLeadUpdate) {
+                onLeadUpdate(call.id, { nextCallbackTime: newDate });
+            }
+
+            await logActivity("Updated Callback Time", `New time: ${format(newDate, "MMM d, h:mm a")}`, call.id, `${firstName} ${lastName}`);
+
+            setIsEditingCallback(false);
+            alert("Callback time updated successfully.");
+        } catch (error) {
+            console.error("Error updating callback time:", error);
+            alert("Failed to update callback time.");
+        } finally {
+            setIsSavingCallback(false);
+        }
+    };
+
+    const handleScheduleNewCallback = async (selectedTime: string) => {
+        if (!call || !call.id || !selectedTime) return;
+        setIsSavingCallback(true);
+        try {
+            const nextTime = new Date(selectedTime);
+            const nextAttempt = (callbackAttempt || 0) + 1;
+
+            const leadData = {
+                leadId: call.id,
+                firstName: firstName,
+                lastName: lastName,
+                phone: phone,
+                city: address?.split(',')[1]?.trim() || "",
+                address: address,
+                crmLeadId: crmLeadId || null,
+                retellAgentId: call.retellAgentId || null
+            };
+
+            // 1. Add to scheduledCallbacks
+            const callbackRef = await addDoc(collection(db, "scheduledCallbacks"), {
+                leadId: call.id,
+                scheduledFor: nextTime,
+                attemptNumber: nextAttempt,
+                status: "pending",
+                createdAt: serverTimestamp(),
+                leadData: leadData,
+                lastCallOutcome: "manual_schedule"
+            });
+
+            // 2. Update Lead
+            await updateDoc(doc(db, "leads", call.id), {
+                hasScheduledCallback: true,
+                nextCallbackTime: nextTime,
+                callbackAttemptNumber: nextAttempt,
+                callbackId: callbackRef.id,
+                updatedAt: serverTimestamp()
+            });
+
+            // Update local object
+            call.nextCallbackTime = nextTime;
+            call.hasScheduledCallback = true;
+            if (call.custom_analysis_data) {
+                call.custom_analysis_data.nextCallbackTime = nextTime;
+            }
+
+            if (onLeadUpdate) {
+                onLeadUpdate(call.id, { nextCallbackTime: nextTime, hasScheduledCallback: true });
+            }
+
+            await logActivity("Scheduled Custom Callback", `Scheduled new callback for ${format(nextTime, "MMM d, h:mm a")}`, call.id, `${firstName} ${lastName}`);
+
+            setIsEditingCallback(false);
+            alert(`Callback scheduled for ${format(nextTime, "MMM d, h:mm a")}`);
+        } catch (error) {
+            console.error("Error scheduling custom callback:", error);
+            alert("Failed to schedule callback time.");
+        } finally {
+            setIsSavingCallback(false);
         }
     };
 
@@ -640,32 +814,112 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
 
                                                 <button
                                                     onClick={handleRequeueCall}
-                                                    disabled={isRequeuing || isRemoving}
+                                                    disabled={isRequeuing || isRemoving || isCallingNow}
                                                     className="text-xs bg-royal-100 dark:bg-royal-900/30 text-royal-700 dark:text-royal-300 px-3 py-1.5 rounded-lg hover:bg-royal-200 dark:hover:bg-royal-900/50 transition-colors flex items-center gap-1.5 disabled:opacity-50"
                                                 >
                                                     {isRequeuing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
                                                     Re-queue Call
+                                                </button>
+                                                <button
+                                                    onClick={handleCallNow}
+                                                    disabled={isCallingNow || isRequeuing || isRemoving}
+                                                    className="text-xs bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-3 py-1.5 rounded-lg hover:bg-emerald-200 dark:hover:bg-emerald-900/50 transition-colors flex items-center gap-1.5 disabled:opacity-50 shadow-sm"
+                                                >
+                                                    {isCallingNow ? <Loader2 className="w-3 h-3 animate-spin" /> : <PhoneCall className="w-3 h-3" />}
+                                                    Call Now
                                                 </button>
                                             </div>
                                         </div>
 
                                         {hasCallbacks ? (
                                             <div className="bg-sky-50 dark:bg-sky-900/10 rounded-lg p-4 border border-sky-100 dark:border-sky-800">
-                                                <div className="flex items-center gap-3 mb-2">
-                                                    <Clock className="w-5 h-5 text-sky-600" />
-                                                    <span className="font-semibold text-sky-900 dark:text-sky-200">Next Callback Scheduled</span>
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <div className="flex items-center gap-3">
+                                                        <Clock className="w-5 h-5 text-sky-600" />
+                                                        <span className="font-semibold text-sky-900 dark:text-sky-200">Next Callback Scheduled</span>
+                                                    </div>
+                                                    <button 
+                                                        onClick={() => {
+                                                            setIsEditingCallback(!isEditingCallback);
+                                                            if (!isEditingCallback && nextCallbackTime) {
+                                                                const dt = nextCallbackTime.seconds ? new Date(nextCallbackTime.seconds * 1000) : new Date(nextCallbackTime);
+                                                                // Format to YYYY-MM-DDThh:mm for datetime-local input
+                                                                const tzoffset = dt.getTimezoneOffset() * 60000; // offset in milliseconds
+                                                                const localISOTime = (new Date(dt.getTime() - tzoffset)).toISOString().slice(0, 16);
+                                                                setNewCallbackTime(localISOTime);
+                                                            }
+                                                        }}
+                                                        className="text-xs text-sky-600 hover:text-sky-800 flex items-center gap-1 bg-sky-100/50 hover:bg-sky-200/50 px-2 py-1 rounded transition-colors"
+                                                    >
+                                                        {isEditingCallback ? <X className="w-3 h-3" /> : <Edit2 className="w-3 h-3" />}
+                                                        {isEditingCallback ? "Cancel" : "Edit"}
+                                                    </button>
                                                 </div>
-                                                <p className="text-sm text-sky-700 dark:text-sky-300 pl-8">
-                                                    {nextCallbackTime ? format(new Date(nextCallbackTime.seconds ? nextCallbackTime.seconds * 1000 : nextCallbackTime), "PPP 'at' p") : "Pending..."}
-                                                </p>
+                                                {isEditingCallback ? (
+                                                    <div className="pl-8 mb-2 flex items-center gap-2 mt-2">
+                                                        <input 
+                                                            type="datetime-local" 
+                                                            value={newCallbackTime}
+                                                            onChange={(e) => setNewCallbackTime(e.target.value)}
+                                                            className="text-sm p-1.5 rounded border border-sky-200 dark:border-sky-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500 flex-1"
+                                                        />
+                                                        <button
+                                                            onClick={handleUpdateCallbackTime}
+                                                            disabled={isSavingCallback}
+                                                            className="p-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded transition-colors disabled:opacity-50"
+                                                        >
+                                                            {isSavingCallback ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <p className="text-sm text-sky-700 dark:text-sky-300 pl-8">
+                                                        {nextCallbackTime ? format(new Date(nextCallbackTime.seconds ? nextCallbackTime.seconds * 1000 : nextCallbackTime), "PPP 'at' p") : "Pending..."}
+                                                    </p>
+                                                )}
                                                 <div className="mt-2 pl-8 text-xs text-sky-600/70">
                                                     Attempt #{callbackAttempt || 1}
                                                 </div>
                                             </div>
                                         ) : (
-                                            <div className="text-sm text-slate-500 flex items-center gap-2">
-                                                <CheckCircle2 className="w-4 h-4 text-green-500" />
-                                                No pending callbacks
+                                            <div className="bg-sky-50 dark:bg-sky-900/10 rounded-lg p-4 border border-sky-100 dark:border-sky-800">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">
+                                                        <CheckCircle2 className="w-4 h-4 text-green-500" />
+                                                        No pending callbacks
+                                                    </div>
+                                                    <button 
+                                                        onClick={() => {
+                                                            setIsEditingCallback(!isEditingCallback);
+                                                            if (!isEditingCallback && !newCallbackTime) {
+                                                                const dt = new Date();
+                                                                const tzoffset = dt.getTimezoneOffset() * 60000;
+                                                                const localISOTime = (new Date(dt.getTime() - tzoffset)).toISOString().slice(0, 16);
+                                                                setNewCallbackTime(localISOTime);
+                                                            }
+                                                        }}
+                                                        className="text-xs text-sky-600 hover:text-sky-800 flex items-center gap-1 bg-sky-100/50 hover:bg-sky-200/50 px-2 py-1 rounded transition-colors"
+                                                    >
+                                                        {isEditingCallback ? <X className="w-3 h-3" /> : <Calendar className="w-3 h-3" />}
+                                                        {isEditingCallback ? "Cancel" : "Schedule"}
+                                                    </button>
+                                                </div>
+                                                {isEditingCallback && (
+                                                    <div className="flex items-center gap-2 mt-2">
+                                                        <input 
+                                                            type="datetime-local" 
+                                                            value={newCallbackTime}
+                                                            onChange={(e) => setNewCallbackTime(e.target.value)}
+                                                            className="text-sm p-1.5 rounded border border-sky-200 dark:border-sky-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500 flex-1"
+                                                        />
+                                                        <button
+                                                            onClick={() => handleScheduleNewCallback(newCallbackTime)}
+                                                            disabled={isSavingCallback || !newCallbackTime}
+                                                            className="p-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded transition-colors disabled:opacity-50"
+                                                        >
+                                                            {isSavingCallback ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
                                     </div>
@@ -697,7 +951,7 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
                                             <History className="w-4 h-4 text-royal-600" />
                                             Call History
                                         </h4>
-                                        <p className="text-xs text-slate-500 mb-4 font-medium">Recorded calls with +1 (289) 816-6495</p>
+                                        <p className="text-xs text-slate-500 mb-4 font-medium">Recorded calls with {formatPhoneNumber(phone) || phone}</p>
 
                                         {isLoadingHistory ? (
                                             <div className="flex flex-col items-center justify-center py-6 text-slate-400">

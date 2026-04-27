@@ -7,7 +7,7 @@ import { CallDetailModal } from "../components/CallDetailModal";
 import { DashboardLegendModal } from "../components/DashboardLegendModal";
 import { QuickAnalyticsModal } from "../components/QuickAnalyticsModal";
 import { Loader2, PhoneIncoming, CheckCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Phone, Clock, User, Plus, Search, Trash2, Info, BarChart3 } from "lucide-react";
-import { format, isAfter, isBefore, subMonths, addMonths } from "date-fns";
+import { format, isAfter, isBefore, subMonths, addMonths, startOfDay, endOfDay, subDays } from "date-fns";
 import { cn, formatPhoneNumber } from "../lib/utils";
 import { MOCK_CALLS } from "../data/mock-data";
 import { fetchRetellCalls } from "../lib/retell";
@@ -17,6 +17,7 @@ import { logActivity } from "../lib/activity-logger";
 type Call = any;
 
 const ITEMS_PER_PAGE = 50;
+const RETELL_BASE_FROM_NUMBER = '+12898166495';
 
 const getOpportunityColor = (call: any) => {
     const customData = call.custom_analysis_data || {};
@@ -90,7 +91,14 @@ export default function Dashboard() {
 
     // Retell Logs State
     const [retellLogs, setRetellLogs] = useState<any[]>([]);
-    const [lastRetellFetchStart, setLastRetellFetchStart] = useState<number | null>(null);
+    const [lastRetellFetchKey, setLastRetellFetchKey] = useState<string | null>(null);
+    const [logsDatePreset, setLogsDatePreset] = useState<'billing_cycle' | 'day' | 'week' | 'month' | 'custom'>('billing_cycle');
+    const [logsCustomFrom, setLogsCustomFrom] = useState(format(new Date(), "yyyy-MM-dd"));
+    const [logsCustomTo, setLogsCustomTo] = useState(format(new Date(), "yyyy-MM-dd"));
+    const [followUpFilter, setFollowUpFilter] = useState<'all' | 'has' | 'missing' | 'range'>('all');
+    const [followUpFrom, setFollowUpFrom] = useState(format(new Date(), "yyyy-MM-dd"));
+    const [followUpTo, setFollowUpTo] = useState(format(new Date(), "yyyy-MM-dd"));
+    const [bookingFilter, setBookingFilter] = useState<'all' | 'booked' | 'not_booked'>('all');
 
     // Helper to calculate billing cycle range
     const getBillingCycle = (date: Date) => {
@@ -106,6 +114,73 @@ export default function Dashboard() {
     };
 
     const { start, end } = getBillingCycle(currentCycleDate);
+
+    const getDateFromValue = (value: any) => {
+        if (!value) return null;
+        const parsed = value?.seconds ? new Date(value.seconds * 1000) : new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+
+    const getLogCallDate = (call: any) =>
+        getDateFromValue(call._timestamp || call.startTime || call.startedAt || call.callStartedAt || call.receivedAt || call.scheduledFor);
+
+    const getLogFollowUpDate = (call: any) =>
+        getDateFromValue(
+            call.followUpDate ||
+            call.custom_analysis_data?.followUpDate ||
+            call.callAnalysis?.custom_analysis_data?.followUpDate ||
+            call.customAnalysisDataRaw?.followUpDate
+        );
+
+    const isBookedLogCall = (call: any) =>
+        !!(
+            call.appointmentBooked ||
+            call.custom_analysis_data?.appointmentBooked ||
+            call.callAnalysis?.custom_analysis_data?.appointmentBooked
+        );
+
+    const getNormalizedPhone = (call: any) => {
+        const raw = (
+            call.phoneNumber ||
+            call.phone ||
+            call.custom_analysis_data?.customerPhone ||
+            call.callAnalysis?.custom_analysis_data?.customerPhone ||
+            call.to_number ||
+            call.from_number ||
+            ""
+        ).toString();
+        const digits = raw.replace(/\D/g, "");
+        return digits.length > 10 ? digits.slice(-10) : digits;
+    };
+
+    const parseLocalDateInput = (dateValue: string) => {
+        const [yearStr, monthStr, dayStr] = dateValue.split("-");
+        const year = Number(yearStr);
+        const month = Number(monthStr);
+        const day = Number(dayStr);
+        return new Date(year, month - 1, day);
+    };
+
+    const getLogsDateRange = () => {
+        const now = new Date();
+        if (logsDatePreset === 'day') {
+            return { rangeStart: startOfDay(now), rangeEnd: endOfDay(now) };
+        }
+        if (logsDatePreset === 'week') {
+            return { rangeStart: startOfDay(subDays(now, 6)), rangeEnd: endOfDay(now) };
+        }
+        if (logsDatePreset === 'month') {
+            return { rangeStart: startOfDay(subDays(now, 29)), rangeEnd: endOfDay(now) };
+        }
+        if (logsDatePreset === 'custom') {
+            const rangeStart = startOfDay(parseLocalDateInput(logsCustomFrom));
+            const rangeEnd = endOfDay(parseLocalDateInput(logsCustomTo));
+            return { rangeStart, rangeEnd };
+        }
+        return { rangeStart: start, rangeEnd: end };
+    };
+
+    const { rangeStart: logsRangeStart, rangeEnd: logsRangeEnd } = getLogsDateRange();
 
     // Fetch data
     // Fetch data
@@ -178,19 +253,22 @@ export default function Dashboard() {
 
     // Fetch Retell Logs
     useEffect(() => {
-        if (activeTab === 'logs' && lastRetellFetchStart !== start.getTime()) {
+        const fetchKey = `${logsRangeStart.getTime()}-${logsRangeEnd.getTime()}`;
+        if (activeTab === 'logs' && lastRetellFetchKey !== fetchKey) {
             setLoading(true);
-            setLastRetellFetchStart(start.getTime());
+            setLastRetellFetchKey(fetchKey);
             fetchRetellCalls(50000, {
                 start_timestamp: {
-                    lower_threshold: start.getTime(),
-                    upper_threshold: end.getTime()
+                    lower_threshold: logsRangeStart.getTime(),
+                    upper_threshold: logsRangeEnd.getTime()
                 }
             })
                 .then(calls => {
                     // Filter by call_type and map
                     const logs = calls
-                        .filter((c: any) => c.call_type === 'phone_call' && (c.from_number === '+12898166495'))
+                        // Base parameter must always be preserved:
+                        // only calls originating from our configured from-number.
+                        .filter((c: any) => c.call_type === 'phone_call' && c.from_number === RETELL_BASE_FROM_NUMBER)
                         .map((c: any) => ({
                             id: c.call_id,
                             receivedAt: { seconds: c.start_timestamp / 1000 },
@@ -213,7 +291,7 @@ export default function Dashboard() {
                 .catch(err => console.error("Failed to fetch retell logs", err))
                 .finally(() => setLoading(false));
         }
-    }, [activeTab, start, end, lastRetellFetchStart]);
+    }, [activeTab, logsRangeStart, logsRangeEnd, lastRetellFetchKey]);
 
     // Filter Logic based on Active Tab
     const filteredItems = (() => {
@@ -244,15 +322,39 @@ export default function Dashboard() {
         } else {
             // Retell Logs - Fetched from API
             items = retellLogs.filter((call) => {
-                let dateStr = call.receivedAt || call.callStartedAt;
-                if (!dateStr) return false;
-                let date = dateStr?.seconds ? new Date(dateStr.seconds * 1000) : new Date(dateStr);
-                return isAfter(date, start) && isBefore(date, end);
-            }).sort((a, b) => {
-                const timeA = a.receivedAt?.seconds || 0;
-                const timeB = b.receivedAt?.seconds || 0;
-                return timeB - timeA;
+                const callDate = getLogCallDate(call);
+                return !!callDate && isAfter(callDate, logsRangeStart) && isBefore(callDate, logsRangeEnd);
             });
+
+            // Compute attempts per number in chronological order, then sort latest first for display.
+            const attemptsByPhone = new Map<string, number>();
+            const attemptsToBookingByPhone = new Map<string, number>();
+            items = [...items]
+                .sort((a, b) => {
+                    const timeA = getLogCallDate(a)?.getTime() || 0;
+                    const timeB = getLogCallDate(b)?.getTime() || 0;
+                    return timeA - timeB;
+                })
+                .map((call) => {
+                    const phoneKey = getNormalizedPhone(call);
+                    const nextAttempt = (attemptsByPhone.get(phoneKey) || 0) + 1;
+                    attemptsByPhone.set(phoneKey, nextAttempt);
+
+                    if (isBookedLogCall(call) && !attemptsToBookingByPhone.has(phoneKey)) {
+                        attemptsToBookingByPhone.set(phoneKey, nextAttempt);
+                    }
+
+                    return {
+                        ...call,
+                        _attemptNumberForPhone: nextAttempt,
+                        _attemptsToBook: attemptsToBookingByPhone.get(phoneKey) || null,
+                    };
+                })
+                .sort((a, b) => {
+                    const timeA = getLogCallDate(a)?.getTime() || 0;
+                    const timeB = getLogCallDate(b)?.getTime() || 0;
+                    return timeB - timeA;
+                });
         }
 
         // Apply Search Filter
@@ -310,6 +412,28 @@ export default function Dashboard() {
         // Apply Color Filter (Opportunities only)
         if (activeTab === 'opportunities' && colorFilter !== 'all') {
             items = items.filter(item => getOpportunityColor(item) === colorFilter);
+        }
+
+        // Call Logs filters
+        if (activeTab === 'logs') {
+            if (followUpFilter === 'has') {
+                items = items.filter(item => !!getLogFollowUpDate(item));
+            } else if (followUpFilter === 'missing') {
+                items = items.filter(item => !getLogFollowUpDate(item));
+            } else if (followUpFilter === 'range') {
+                const rangeStart = startOfDay(parseLocalDateInput(followUpFrom));
+                const rangeEnd = endOfDay(parseLocalDateInput(followUpTo));
+                items = items.filter(item => {
+                    const followUpDate = getLogFollowUpDate(item);
+                    return !!followUpDate && isAfter(followUpDate, rangeStart) && isBefore(followUpDate, rangeEnd);
+                });
+            }
+
+            if (bookingFilter === 'booked') {
+                items = items.filter(item => isBookedLogCall(item));
+            } else if (bookingFilter === 'not_booked') {
+                items = items.filter(item => !isBookedLogCall(item));
+            }
         }
 
         return items;
@@ -473,7 +597,7 @@ export default function Dashboard() {
                 <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col">
 
                     {/* Toolbar */}
-                    <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row gap-4 justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
+                    <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex flex-col gap-4 justify-between items-start bg-slate-50/50 dark:bg-slate-900/50">
 
                         {/* Tabs */}
                         <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
@@ -512,7 +636,7 @@ export default function Dashboard() {
                             </button>
                         </div>
 
-                        <div className="flex items-center gap-4">
+                        <div className="flex flex-wrap items-center gap-2 w-full">
                             {/* Color Filter (Opportunities Only) */}
                             {activeTab === 'opportunities' && (
                                 <select
@@ -531,19 +655,92 @@ export default function Dashboard() {
                                 </select>
                             )}
 
+                            {activeTab === 'logs' && (
+                                <>
+                                    <select
+                                        value={logsDatePreset}
+                                        onChange={(e) => { setLogsDatePreset(e.target.value as any); setCurrentPage(1); }}
+                                        className="py-1.5 pl-3 pr-8 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-royal-500/20"
+                                    >
+                                        <option value="billing_cycle">Billing Cycle</option>
+                                        <option value="day">Today</option>
+                                        <option value="week">Last 7 Days</option>
+                                        <option value="month">Last 30 Days</option>
+                                        <option value="custom">Custom Range</option>
+                                    </select>
+
+                                    {logsDatePreset === 'custom' && (
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="date"
+                                                value={logsCustomFrom}
+                                                onChange={(e) => { setLogsCustomFrom(e.target.value); setCurrentPage(1); }}
+                                                className="py-1.5 px-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                                            />
+                                            <span className="text-xs text-slate-400">to</span>
+                                            <input
+                                                type="date"
+                                                value={logsCustomTo}
+                                                onChange={(e) => { setLogsCustomTo(e.target.value); setCurrentPage(1); }}
+                                                className="py-1.5 px-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                                            />
+                                        </div>
+                                    )}
+
+                                    <select
+                                        value={followUpFilter}
+                                        onChange={(e) => { setFollowUpFilter(e.target.value as any); setCurrentPage(1); }}
+                                        className="py-1.5 pl-3 pr-8 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-royal-500/20"
+                                    >
+                                        <option value="all">All Follow-ups</option>
+                                        <option value="has">Has Follow-up Date</option>
+                                        <option value="missing">No Follow-up Date</option>
+                                        <option value="range">Follow-up Date Range</option>
+                                    </select>
+
+                                    {followUpFilter === 'range' && (
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="date"
+                                                value={followUpFrom}
+                                                onChange={(e) => { setFollowUpFrom(e.target.value); setCurrentPage(1); }}
+                                                className="py-1.5 px-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                                            />
+                                            <span className="text-xs text-slate-400">to</span>
+                                            <input
+                                                type="date"
+                                                value={followUpTo}
+                                                onChange={(e) => { setFollowUpTo(e.target.value); setCurrentPage(1); }}
+                                                className="py-1.5 px-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                                            />
+                                        </div>
+                                    )}
+
+                                    <select
+                                        value={bookingFilter}
+                                        onChange={(e) => { setBookingFilter(e.target.value as any); setCurrentPage(1); }}
+                                        className="py-1.5 pl-3 pr-8 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-royal-500/20"
+                                    >
+                                        <option value="all">All Booking Outcomes</option>
+                                        <option value="booked">Booked Only</option>
+                                        <option value="not_booked">Not Booked</option>
+                                    </select>
+                                </>
+                            )}
+
                             {/* Search Bar */}
-                            <div className="relative w-full sm:w-auto">
+                            <div className="relative w-full sm:w-[220px] md:w-[260px] ml-auto sm:ml-0">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                                 <input
                                     type="text"
                                     placeholder="Search..."
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="pl-9 pr-4 py-1.5 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-royal-500/20 w-full sm:w-48 transition-all focus:w-full sm:focus:w-64"
+                                    className="pl-9 pr-4 py-1.5 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-royal-500/20 w-full"
                                 />
                             </div>
 
-                            <div className="h-6 w-px bg-slate-200 dark:bg-slate-800 mx-2 hidden sm:block"></div>
+                            <div className="h-6 w-px bg-slate-200 dark:bg-slate-800 mx-2 hidden lg:block"></div>
 
                             <h2 className="font-semibold text-slate-800 dark:text-white flex items-center gap-2">
                                 <span className="hidden sm:inline">
@@ -555,7 +752,7 @@ export default function Dashboard() {
                             </h2>
 
                             {/* Pagination Controls (Top) */}
-                            <div className="flex items-center gap-2 text-sm text-slate-500">
+                            <div className="flex items-center gap-2 text-sm text-slate-500 ml-auto">
                                 <span className="mr-2">Page {currentPage} of {Math.max(1, totalPages)}</span>
                                 <button
                                     disabled={currentPage === 1}
@@ -603,6 +800,9 @@ export default function Dashboard() {
                                         )}
                                         <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[140px]">Status</th>
                                         <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[140px]">{activeTab === 'logs' ? 'Disconnection Reason' : 'Outcome'}</th>
+                                        {activeTab === 'logs' && (
+                                            <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[130px]">Attempts to Book</th>
+                                        )}
                                         {activeTab === 'scheduled' && (
                                             <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[100px] text-right">Actions</th>
                                         )}
@@ -817,6 +1017,17 @@ export default function Dashboard() {
                                                         </div>
                                                     )}
                                                 </td>
+                                                {activeTab === 'logs' && (
+                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                        {isBooked && call._attemptsToBook ? (
+                                                            <span className="text-sm font-semibold text-royal-700 dark:text-royal-300">
+                                                                {call._attemptsToBook} {call._attemptsToBook === 1 ? "attempt" : "attempts"}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-xs text-slate-400">-</span>
+                                                        )}
+                                                    </td>
+                                                )}
                                                 {/* Actions (Only for Scheduled) */}
                                                 {activeTab === 'scheduled' && (
                                                     <td className="px-6 py-4 whitespace-nowrap text-right">

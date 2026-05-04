@@ -5,11 +5,33 @@ export function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs))
 }
 
+export type OutboundWindowSlot = "10am" | "6pm";
+
 /**
- * Get next callback time in EST/EDT (Toronto Time)
- * Callback times: 10am, 2pm, 6pm, 7:45pm local Toronto time
+ * Infer which outbound window (10am vs 6pm) a past call time aligns with, in Toronto time.
  */
-export function getNextCallbackTime(): Date {
+export function inferOutboundWindowFromTime(referenceTime: Date): OutboundWindowSlot | undefined {
+    const getTorontoTime = (date: Date) => {
+        return new Date(date.toLocaleString("en-US", { timeZone: "America/Toronto" }));
+    };
+    const t = getTorontoTime(referenceTime);
+    const minutes = t.getHours() * 60 + t.getMinutes();
+    const ten = 10 * 60;
+    const six = 18 * 60;
+    const distTen = Math.abs(minutes - ten);
+    const distSix = Math.abs(minutes - six);
+    if (distTen <= 90) return "10am";
+    if (distSix <= 90) return "6pm";
+    if (minutes < 14 * 60) return "10am";
+    if (minutes >= 14 * 60) return "6pm";
+    return undefined;
+}
+
+/**
+ * Next manual callback slot in Toronto: 10:00 or 18:00 only, alternating from the previous window when known.
+ * If `previousSlot` is omitted, uses the earliest upcoming 10am or 6pm.
+ */
+export function getNextCallbackTime(previousSlot?: OutboundWindowSlot): Date {
     // Helper to check time in Toronto
     const getTorontoTime = (date: Date) => {
         return new Date(date.toLocaleString('en-US', { timeZone: 'America/Toronto' }));
@@ -18,33 +40,37 @@ export function getNextCallbackTime(): Date {
     const now = new Date();
     const torontoNow = getTorontoTime(now);
 
-    // Callback slots (hours and minutes)
-    const callbackSlots = [
-        { h: 10, m: 0 },   // 10:00 AM
-        { h: 14, m: 0 },   // 2:00 PM
-        { h: 18, m: 0 },   // 6:00 PM
-        { h: 19, m: 45 }   // 7:45 PM
-    ];
+    const slot10 = { h: 10, m: 0 };
+    const slot18 = { h: 18, m: 0 };
+
+    const callbackSlots =
+        previousSlot === "10am"
+            ? [slot18]
+            : previousSlot === "6pm"
+                ? [slot10]
+                : [slot10, slot18];
 
     // Find next callback slot
     let targetTime = new Date(torontoNow);
     let found = false;
 
-    // 1. Check later today
+    // 1. Check later today (pick earliest qualifying slot today)
+    let bestToday: Date | null = null;
     for (const slot of callbackSlots) {
-        // create candidate time for today
         const candidate = new Date(torontoNow);
         candidate.setHours(slot.h, slot.m, 0, 0);
-
-        // If candidate is in the future (with 5 min buffer to avoid immediate execution issues)
         if (candidate.getTime() > torontoNow.getTime() + 5 * 60 * 1000) {
-            targetTime = candidate;
-            found = true;
-            break;
+            if (!bestToday || candidate.getTime() < bestToday.getTime()) {
+                bestToday = candidate;
+            }
         }
     }
+    if (bestToday) {
+        targetTime = bestToday;
+        found = true;
+    }
 
-    // 2. If no slots today, schedule for tomorrow at first slot
+    // 2. If no slots today, schedule for tomorrow at first slot in list
     if (!found) {
         targetTime = new Date(torontoNow);
         targetTime.setDate(targetTime.getDate() + 1);

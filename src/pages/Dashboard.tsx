@@ -80,7 +80,9 @@ export default function Dashboard() {
     const [selectedCall, setSelectedCall] = useState<Call | null>(null);
     const [isAddLeadOpen, setIsAddLeadOpen] = useState(false);
     const [isLegendOpen, setIsLegendOpen] = useState(false);
-    const [isQuickAnalyticsOpen, setIsQuickAnalyticsOpen] = useState(false);
+    const [quickAnalyticsOpen, setQuickAnalyticsOpen] = useState(false);
+    const [quickAnalyticsMode, setQuickAnalyticsMode] = useState<"today" | "range">("today");
+    const [quickAnalyticsRange, setQuickAnalyticsRange] = useState<{ start: Date; end: Date } | null>(null);
 
     // Billing Cycle State
     // Default to current date to calculate the relevant billing cycle
@@ -543,7 +545,12 @@ export default function Dashboard() {
                                 <span className="hidden sm:inline">Legend</span>
                             </button>
                             <button
-                                onClick={() => setIsQuickAnalyticsOpen(true)}
+                                type="button"
+                                onClick={() => {
+                                    setQuickAnalyticsMode("today");
+                                    setQuickAnalyticsRange(null);
+                                    setQuickAnalyticsOpen(true);
+                                }}
                                 className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 px-4 py-3 rounded-xl shadow-sm transition-all font-medium"
                             >
                                 <BarChart3 className="w-5 h-5 text-emerald-500" />
@@ -725,6 +732,23 @@ export default function Dashboard() {
                                         <option value="booked">Booked Only</option>
                                         <option value="not_booked">Not Booked</option>
                                     </select>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setQuickAnalyticsMode("range");
+                                            setQuickAnalyticsRange({
+                                                start: logsRangeStart,
+                                                end: logsRangeEnd,
+                                            });
+                                            setQuickAnalyticsOpen(true);
+                                        }}
+                                        className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                                    >
+                                        <BarChart3 className="w-4 h-4 text-emerald-500 shrink-0" />
+                                        <span className="hidden sm:inline">Period analytics</span>
+                                        <span className="sm:hidden">Analytics</span>
+                                    </button>
                                 </>
                             )}
 
@@ -1098,8 +1122,11 @@ export default function Dashboard() {
             />
 
             <QuickAnalyticsModal
-                isOpen={isQuickAnalyticsOpen}
-                onClose={() => setIsQuickAnalyticsOpen(false)}
+                isOpen={quickAnalyticsOpen}
+                onClose={() => setQuickAnalyticsOpen(false)}
+                mode={quickAnalyticsMode}
+                rangeStart={quickAnalyticsRange?.start ?? null}
+                rangeEnd={quickAnalyticsRange?.end ?? null}
                 leads={leads}
                 scheduledCallbacks={scheduledCallbacks}
             />

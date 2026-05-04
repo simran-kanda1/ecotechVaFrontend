@@ -4,7 +4,7 @@ import { cn } from "../lib/utils";
 import { db } from "../lib/firebase";
 import { addDoc, collection, doc, serverTimestamp, updateDoc, query, where, getDocs, writeBatch, arrayUnion } from "firebase/firestore";
 import { format } from "date-fns";
-import { getNextCallbackTime, formatPhoneNumber } from "../lib/utils";
+import { getNextCallbackTime, inferOutboundWindowFromTime, formatPhoneNumber } from "../lib/utils";
 import { useState, useEffect } from "react";
 import { fetchCallsForNumber, makeOutboundCall } from "../lib/retell";
 import { logActivity } from "../lib/activity-logger";
@@ -142,7 +142,17 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
 
         setIsRequeuing(true);
         try {
-            const nextTime = getNextCallbackTime();
+            const rawLast = lastCallTime;
+            const lastCallDate = rawLast
+                ? (typeof rawLast === "object" && rawLast !== null && "seconds" in rawLast
+                    ? new Date((rawLast as { seconds: number }).seconds * 1000)
+                    : new Date(rawLast as string | number))
+                : null;
+            const previousSlot =
+                lastCallDate && !Number.isNaN(lastCallDate.getTime())
+                    ? inferOutboundWindowFromTime(lastCallDate)
+                    : undefined;
+            const nextTime = getNextCallbackTime(previousSlot);
             const nextAttempt = (callbackAttempt || 0) + 1;
 
             const leadData = {

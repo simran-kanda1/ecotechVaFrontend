@@ -2,7 +2,7 @@ import { Dialog } from "@radix-ui/react-dialog";
 import { X, BarChart3, TrendingUp, Users, PhoneCall, Voicemail, CalendarDays, Skull, Loader2, Clock } from "lucide-react";
 import { useState, useEffect } from "react";
 import { fetchRetellCalls } from "../lib/retell";
-import { startOfToday, startOfYesterday } from "date-fns";
+import { startOfToday, startOfYesterday, format } from "date-fns";
 import { cn } from "../lib/utils";
 
 interface QuickAnalyticsModalProps {
@@ -10,96 +10,236 @@ interface QuickAnalyticsModalProps {
     onClose: () => void;
     leads?: any[];
     scheduledCallbacks?: any[];
+    /** "today" matches the header quick stats; "range" uses rangeStart/rangeEnd (e.g. call log filter window). */
+    mode?: "today" | "range";
+    rangeStart?: Date | null;
+    rangeEnd?: Date | null;
 }
 
-export function QuickAnalyticsModal({ isOpen, onClose, leads = [], scheduledCallbacks = [] }: QuickAnalyticsModalProps) {
+function parseLeadDate(raw: any): Date | null {
+    if (!raw) return null;
+    const d = raw.seconds != null ? new Date(raw.seconds * 1000) : new Date(raw);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function isInInclusiveRange(d: Date, startMs: number, endMs: number) {
+    const t = d.getTime();
+    return t >= startMs && t <= endMs;
+}
+
+/** Booking outcome on a Retell call record (same signal conversion rate implies). */
+function retellCallIndicatesBooking(c: any): boolean {
+    return c.call_analysis?.custom_analysis_data?.appointmentBooked === true;
+}
+
+function normalizedCustomerPhoneFromRetellCall(c: any): string {
+    const raw = c.direction === "inbound" ? c.from_number : c.to_number;
+    const digits = String(raw || "").replace(/\D/g, "");
+    return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+/** Unique customers with at least one booking outcome in the given call list (aligned with conv. rate). */
+function uniqueBookingCountFromRetellCalls(calls: any[]): number {
+    const phones = new Set<string>();
+    for (const c of calls) {
+        if (!retellCallIndicatesBooking(c)) continue;
+        const key = normalizedCustomerPhoneFromRetellCall(c);
+        if (key.length > 0) phones.add(key);
+    }
+    return phones.size;
+}
+
+export function QuickAnalyticsModal({
+    isOpen,
+    onClose,
+    leads = [],
+    scheduledCallbacks = [],
+    mode = "today",
+    rangeStart = null,
+    rangeEnd = null,
+}: QuickAnalyticsModalProps) {
     const [loading, setLoading] = useState(false);
     const [stats, setStats] = useState<any>(null);
 
     useEffect(() => {
-        if (isOpen) {
-            loadAnalytics();
-        }
-    }, [isOpen]);
+        if (!isOpen) return;
 
-    const loadAnalytics = async () => {
-        setLoading(true);
-        try {
-            const today = startOfToday();
-            const yesterday = startOfYesterday();
+        const loadAnalytics = async () => {
+            setLoading(true);
+            try {
+                const isRange =
+                    mode === "range" &&
+                    rangeStart instanceof Date &&
+                    rangeEnd instanceof Date &&
+                    !Number.isNaN(rangeStart.getTime()) &&
+                    !Number.isNaN(rangeEnd.getTime());
 
-            // 1. Fetch Retell Calls for the last few days (from yesterday to now)
-            const recentCalls = await fetchRetellCalls(2000, {
-                start_timestamp: {
-                    lower_threshold: yesterday.getTime()
+                const answeredFilter = (c: any) =>
+                    c.disconnection_reason !== "dial_failed" &&
+                    c.disconnection_reason !== "dial_no_answer" &&
+                    c.disconnection_reason !== "dial_busy";
+
+                const isVoicemail = (c: any) =>
+                    c.call_analysis?.custom_analysis_data?.in_voicemail ||
+                    c.call_analysis?.custom_analysis_data?.callOutcome === "voicemail" ||
+                    c.disconnection_reason === "voicemail_reached" ||
+                    (c.call_analysis?.call_summary?.toLowerCase?.() || "").includes("voicemail");
+
+                const isDeadOutcome = (c: any) =>
+                    c.call_analysis?.custom_analysis_data?.callOutcome === "not_interested" ||
+                    c.call_analysis?.custom_analysis_data?.callOutcome === "dnc" ||
+                    c.call_analysis?.custom_analysis_data?.status === "dead" ||
+                    (c.call_analysis?.call_summary?.toLowerCase?.() || "").includes("not interested");
+
+                if (!isRange) {
+                    const today = startOfToday();
+                    const yesterday = startOfYesterday();
+
+                    const recentCalls = await fetchRetellCalls(2000, {
+                        start_timestamp: {
+                            lower_threshold: yesterday.getTime(),
+                        },
+                    });
+
+                    const callsToday = recentCalls.filter((c: any) => c.start_timestamp >= today.getTime());
+                    const callsYesterday = recentCalls.filter(
+                        (c: any) => c.start_timestamp >= yesterday.getTime() && c.start_timestamp < today.getTime()
+                    );
+
+                    const answeredToday = callsToday.filter(answeredFilter);
+
+                    const opportunitiesAddedToday = leads.filter((l) => {
+                        const date = parseLeadDate(l.receivedAt || l.createdAt);
+                        return date && date >= today;
+                    });
+
+                    const totalBooked = uniqueBookingCountFromRetellCalls(callsToday);
+                    const conversionRateToday =
+                        answeredToday.length > 0 ? (totalBooked / answeredToday.length) * 100 : 0;
+
+                    const connectedCalls = callsToday.filter(answeredFilter);
+                    const notConnectedCalls = callsToday.filter(
+                        (c: any) =>
+                            c.disconnection_reason === "dial_failed" ||
+                            c.disconnection_reason === "dial_no_answer" ||
+                            c.disconnection_reason === "dial_busy"
+                    );
+
+                    const voicemailCalls = callsToday.filter(isVoicemail);
+                    const actualAnswered = Math.max(0, connectedCalls.length - voicemailCalls.length);
+                    const noAnswerCalls = notConnectedCalls.length;
+
+                    const immediateCallbacks = scheduledCallbacks.filter((c) => c.status === "pending").length;
+
+                    const deadOppsToday = callsToday.filter(isDeadOutcome);
+
+                    setStats({
+                        uiMode: "today" as const,
+                        periodLabel: "Real-time stats for Today",
+                        headerTitle: "Quick Analytics",
+                        callsPrimary: callsToday.length,
+                        callsCompare: callsYesterday.length,
+                        compareTrendLabel: `vs ${callsYesterday.length} yesterday`,
+                        callsCardTitle: "Calls Today",
+                        conversionRate: conversionRateToday.toFixed(1),
+                        uniqueCustomers: opportunitiesAddedToday.length,
+                        uniqueCardTitle: "Unique Contacts",
+                        uniqueCardHint: "Opportunities added today",
+                        bookingsCardHint: "Unique customers with a booking outcome on a call today",
+                        connected: connectedCalls.length,
+                        notConnected: notConnectedCalls.length,
+                        answered: actualAnswered,
+                        voicemail: voicemailCalls.length,
+                        noAnswer: noAnswerCalls,
+                        booked: totalBooked,
+                        droppedCalls: immediateCallbacks,
+                        deadOpps: deadOppsToday.length,
+                        deadCardSub: "Not interested / DNC today",
+                    });
+                } else {
+                    const rs = rangeStart!.getTime();
+                    const re = rangeEnd!.getTime();
+                    const span = Math.max(0, re - rs);
+                    const prevEndMs = rs - 1;
+                    const prevStartMs = prevEndMs - span;
+
+                    const recentCalls = await fetchRetellCalls(50000, {
+                        start_timestamp: {
+                            lower_threshold: prevStartMs,
+                            upper_threshold: re,
+                        },
+                    });
+
+                    const callsInRange = recentCalls.filter(
+                        (c: any) => c.start_timestamp >= rs && c.start_timestamp <= re
+                    );
+                    const callsPrev = recentCalls.filter(
+                        (c: any) => c.start_timestamp >= prevStartMs && c.start_timestamp <= prevEndMs
+                    );
+
+                    const answeredInRange = callsInRange.filter(answeredFilter);
+
+                    const opportunitiesInRange = leads.filter((l) => {
+                        const date = parseLeadDate(l.receivedAt || l.createdAt);
+                        return date && isInInclusiveRange(date, rs, re);
+                    });
+
+                    const totalBooked = uniqueBookingCountFromRetellCalls(callsInRange);
+
+                    const conversionRate =
+                        answeredInRange.length > 0 ? (totalBooked / answeredInRange.length) * 100 : 0;
+
+                    const connectedCalls = callsInRange.filter(answeredFilter);
+                    const notConnectedCalls = callsInRange.filter(
+                        (c: any) =>
+                            c.disconnection_reason === "dial_failed" ||
+                            c.disconnection_reason === "dial_no_answer" ||
+                            c.disconnection_reason === "dial_busy"
+                    );
+
+                    const voicemailCalls = callsInRange.filter(isVoicemail);
+                    const actualAnswered = Math.max(0, connectedCalls.length - voicemailCalls.length);
+                    const noAnswerCalls = notConnectedCalls.length;
+
+                    const immediateCallbacks = scheduledCallbacks.filter((c) => c.status === "pending").length;
+
+                    const deadInRange = callsInRange.filter(isDeadOutcome);
+
+                    const rangeLabel = `${format(rangeStart!, "MMM d, yyyy")} – ${format(rangeEnd!, "MMM d, yyyy")}`;
+
+                    setStats({
+                        uiMode: "range" as const,
+                        periodLabel: rangeLabel,
+                        headerTitle: "Period analytics",
+                        callsPrimary: callsInRange.length,
+                        callsCompare: callsPrev.length,
+                        compareTrendLabel: `vs ${callsPrev.length} prior period`,
+                        callsCardTitle: "Calls in range",
+                        conversionRate: conversionRate.toFixed(1),
+                        uniqueCustomers: opportunitiesInRange.length,
+                        uniqueCardTitle: "New in range",
+                        uniqueCardHint: "Opportunities first seen in this window",
+                        connected: connectedCalls.length,
+                        notConnected: notConnectedCalls.length,
+                        answered: actualAnswered,
+                        voicemail: voicemailCalls.length,
+                        noAnswer: noAnswerCalls,
+                        booked: totalBooked,
+                        bookingsCardHint: "Unique customers with a booking outcome on a call in this range",
+                        droppedCalls: immediateCallbacks,
+                        deadOpps: deadInRange.length,
+                        deadCardSub: "Not interested / DNC in range",
+                    });
                 }
-            });
+            } catch (error) {
+                console.error("Failed to load analytics", error);
+            } finally {
+                setLoading(false);
+            }
+        };
 
-            // 1. Total Daily Calls (Retell)
-            const callsToday = recentCalls.filter((c: any) => c.start_timestamp >= today.getTime());
-            const callsYesterday = recentCalls.filter((c: any) => c.start_timestamp >= yesterday.getTime() && c.start_timestamp < today.getTime());
-
-            // 2. Conversion Rate (Booked / Total Answered) for Today
-            const answeredToday = callsToday.filter((c: any) => c.disconnection_reason !== 'dial_failed' && c.disconnection_reason !== 'dial_no_answer' && c.disconnection_reason !== 'dial_busy');
-
-            // 3. Unique Contacts (Opportunities added today)
-            const opportunitiesAddedToday = leads.filter(l => {
-                const rawDate = l.receivedAt || l.createdAt;
-                if (!rawDate) return false;
-                const date = rawDate?.seconds ? new Date(rawDate.seconds * 1000) : new Date(rawDate);
-                return date >= today;
-            });
-            const uniqueContacts = opportunitiesAddedToday.length;
-
-            // 4. Bookings Grabbed From Firebase (Leads booked today)
-            // Or leads that exist that have a crmLeadId or appointmentBooked === true AND were created/called today?
-            // Actually, just any lead booked today.
-            const bookedFirebaseLeadsToday = leads.filter(l => {
-                const isBooked = l.appointmentBooked || !!l.crmLeadId || l.custom_analysis_data?.appointmentBooked;
-                const rawDate = l.updatedAt || l.receivedAt || l.createdAt;
-                if (!rawDate || !isBooked) return false;
-                const date = rawDate?.seconds ? new Date(rawDate.seconds * 1000) : new Date(rawDate);
-                return date >= today;
-            });
-            const totalBooked = bookedFirebaseLeadsToday.length;
-            const conversionRateToday = answeredToday.length > 0 ? (totalBooked / answeredToday.length) * 100 : 0;
-
-            // 5. Connected vs Not Connected (Today)
-            const connectedCalls = callsToday.filter((c: any) => c.disconnection_reason !== 'dial_failed' && c.disconnection_reason !== 'dial_no_answer' && c.disconnection_reason !== 'dial_busy');
-            const notConnectedCalls = callsToday.filter((c: any) => c.disconnection_reason === 'dial_failed' || c.disconnection_reason === 'dial_no_answer' || c.disconnection_reason === 'dial_busy');
-
-            // 6. Answered vs Voicemail vs No Answer (Today)
-            const voicemailCalls = callsToday.filter((c: any) => c.call_analysis?.custom_analysis_data?.in_voicemail || c.call_analysis?.custom_analysis_data?.callOutcome === "voicemail" || c.disconnection_reason === "voicemail_reached" || c.call_analysis?.call_summary?.toLowerCase().includes("voicemail"));
-            const actualAnswered = Math.max(0, connectedCalls.length - voicemailCalls.length);
-            const noAnswerCalls = notConnectedCalls.length;
-
-            // 7. Immediate Callbacks required (Opportunities asking to be followed up with)
-            const immediateCallbacks = scheduledCallbacks.filter(c => c.status === "pending").length;
-
-            // 8. Dead Opportunities (Today)
-            const deadOppsToday = callsToday.filter((c: any) => c.call_analysis?.custom_analysis_data?.callOutcome === 'not_interested' || c.call_analysis?.custom_analysis_data?.callOutcome === 'dnc' || c.call_analysis?.custom_analysis_data?.status === 'dead' || c.call_analysis?.call_summary?.toLowerCase().includes("not interested"));
-
-            setStats({
-                callsToday: callsToday.length,
-                callsYesterday: callsYesterday.length,
-                conversionRateToday: conversionRateToday.toFixed(1),
-                uniqueCustomers: uniqueContacts,
-                connected: connectedCalls.length,
-                notConnected: notConnectedCalls.length,
-                answered: actualAnswered,
-                voicemail: voicemailCalls.length,
-                noAnswer: noAnswerCalls,
-                booked: totalBooked,
-                droppedCalls: immediateCallbacks, // Representing "Immediate Callbacks"
-                deadOpps: deadOppsToday.length
-            });
-
-        } catch (error) {
-            console.error("Failed to load analytics", error);
-        } finally {
-            setLoading(false);
-        }
-    };
+        loadAnalytics();
+    }, [isOpen, mode, rangeStart?.getTime(), rangeEnd?.getTime()]);
 
     if (!isOpen) return null;
 
@@ -115,11 +255,18 @@ export function QuickAnalyticsModal({ isOpen, onClose, leads = [], scheduledCall
                                 <BarChart3 className="w-5 h-5" />
                             </div>
                             <div>
-                                <h2 className="text-xl font-bold text-slate-900 dark:text-white">Quick Analytics</h2>
-                                <p className="text-xs text-slate-500 font-medium">Real-time stats for Today</p>
+                                <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+                                    {stats?.headerTitle ?? "Quick Analytics"}
+                                </h2>
+                                <p className="text-xs text-slate-500 font-medium">
+                                    {stats?.periodLabel ?? (mode === "range" ? "Selected date range" : "Real-time stats for Today")}
+                                </p>
                             </div>
                         </div>
-                        <button onClick={onClose} className="p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
+                        <button
+                            onClick={onClose}
+                            className="p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
+                        >
                             <X className="w-5 h-5" />
                         </button>
                     </div>
@@ -135,10 +282,34 @@ export function QuickAnalyticsModal({ isOpen, onClose, leads = [], scheduledCall
                             <div className="space-y-6">
                                 {/* Top Stats */}
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                    <StatCard title="Calls Today" value={stats.callsToday} icon={<PhoneCall className="w-4 h-4" />} trend={`vs ${stats.callsYesterday} yesterday`} isPositive={stats.callsToday >= stats.callsYesterday} color="royal" />
-                                    <StatCard title="Conv. Rate" value={`${stats.conversionRateToday}%`} icon={<TrendingUp className="w-4 h-4" />} color="green" />
-                                    <StatCard title="Unique Contacts" value={stats.uniqueCustomers} icon={<Users className="w-4 h-4" />} color="blue" />
-                                    <StatCard title="Bookings" value={stats.booked} icon={<CalendarDays className="w-4 h-4" />} color="purple" />
+                                    <StatCard
+                                        title={stats.callsCardTitle}
+                                        value={stats.callsPrimary}
+                                        icon={<PhoneCall className="w-4 h-4" />}
+                                        trend={stats.compareTrendLabel}
+                                        isPositive={stats.callsPrimary >= stats.callsCompare}
+                                        color="royal"
+                                    />
+                                    <StatCard
+                                        title="Conv. Rate"
+                                        value={`${stats.conversionRate}%`}
+                                        icon={<TrendingUp className="w-4 h-4" />}
+                                        color="green"
+                                    />
+                                    <StatCard
+                                        title={stats.uniqueCardTitle}
+                                        hint={stats.uniqueCardHint}
+                                        value={stats.uniqueCustomers}
+                                        icon={<Users className="w-4 h-4" />}
+                                        color="blue"
+                                    />
+                                    <StatCard
+                                        title="Bookings"
+                                        hint={stats.bookingsCardHint}
+                                        value={stats.booked}
+                                        icon={<CalendarDays className="w-4 h-4" />}
+                                        color="purple"
+                                    />
                                 </div>
 
                                 {/* Connection Breakdown */}
@@ -149,8 +320,18 @@ export function QuickAnalyticsModal({ isOpen, onClose, leads = [], scheduledCall
                                             Connection Overview
                                         </h3>
                                         <div className="space-y-3">
-                                            <ProgressBar label="Connected" value={stats.connected} total={stats.callsToday || 1} color="bg-emerald-500" />
-                                            <ProgressBar label="Not Connected" value={stats.notConnected} total={stats.callsToday || 1} color="bg-amber-500" />
+                                            <ProgressBar
+                                                label="Connected"
+                                                value={stats.connected}
+                                                total={stats.callsPrimary || 1}
+                                                color="bg-emerald-500"
+                                            />
+                                            <ProgressBar
+                                                label="Not Connected"
+                                                value={stats.notConnected}
+                                                total={stats.callsPrimary || 1}
+                                                color="bg-amber-500"
+                                            />
                                         </div>
                                     </div>
 
@@ -160,9 +341,24 @@ export function QuickAnalyticsModal({ isOpen, onClose, leads = [], scheduledCall
                                             Outcome Breakdown
                                         </h3>
                                         <div className="space-y-3">
-                                            <ProgressBar label="Answered" value={stats.answered} total={stats.callsToday || 1} color="bg-blue-500" />
-                                            <ProgressBar label="Voicemail" value={stats.voicemail} total={stats.callsToday || 1} color="bg-indigo-500" />
-                                            <ProgressBar label="No Answer" value={stats.noAnswer} total={stats.callsToday || 1} color="bg-slate-400" />
+                                            <ProgressBar
+                                                label="Answered"
+                                                value={stats.answered}
+                                                total={stats.callsPrimary || 1}
+                                                color="bg-blue-500"
+                                            />
+                                            <ProgressBar
+                                                label="Voicemail"
+                                                value={stats.voicemail}
+                                                total={stats.callsPrimary || 1}
+                                                color="bg-indigo-500"
+                                            />
+                                            <ProgressBar
+                                                label="No Answer"
+                                                value={stats.noAnswer}
+                                                total={stats.callsPrimary || 1}
+                                                color="bg-slate-400"
+                                            />
                                         </div>
                                     </div>
                                 </div>
@@ -176,11 +372,15 @@ export function QuickAnalyticsModal({ isOpen, onClose, leads = [], scheduledCall
                                                     <Clock className="w-5 h-5" />
                                                 </div>
                                                 <div>
-                                                    <h3 className="text-sm font-bold text-red-900 dark:text-red-300">Pending Callbacks</h3>
+                                                    <h3 className="text-sm font-bold text-red-900 dark:text-red-300">
+                                                        Pending Callbacks
+                                                    </h3>
                                                     <p className="text-xs text-red-600/70">Opportunities requesting follow up</p>
                                                 </div>
                                             </div>
-                                            <span className="text-2xl font-bold text-red-700 dark:text-red-400">{stats.droppedCalls}</span>
+                                            <span className="text-2xl font-bold text-red-700 dark:text-red-400">
+                                                {stats.droppedCalls}
+                                            </span>
                                         </div>
                                     </div>
 
@@ -191,15 +391,18 @@ export function QuickAnalyticsModal({ isOpen, onClose, leads = [], scheduledCall
                                                     <Skull className="w-5 h-5" />
                                                 </div>
                                                 <div>
-                                                    <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">Dead Opportunities</h3>
-                                                    <p className="text-xs text-slate-500">Not interested / DNC today</p>
+                                                    <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                                                        Dead Opportunities
+                                                    </h3>
+                                                    <p className="text-xs text-slate-500">{stats.deadCardSub}</p>
                                                 </div>
                                             </div>
-                                            <span className="text-2xl font-bold text-slate-700 dark:text-slate-300">{stats.deadOpps}</span>
+                                            <span className="text-2xl font-bold text-slate-700 dark:text-slate-300">
+                                                {stats.deadOpps}
+                                            </span>
                                         </div>
                                     </div>
                                 </div>
-
                             </div>
                         ) : null}
                     </div>
@@ -209,7 +412,7 @@ export function QuickAnalyticsModal({ isOpen, onClose, leads = [], scheduledCall
     );
 }
 
-function StatCard({ title, value, icon, trend, isPositive, color = "royal" }: any) {
+function StatCard({ title, value, icon, trend, isPositive, hint, color = "royal" }: any) {
     const colorClasses: Record<string, string> = {
         royal: "text-royal-600 bg-royal-100 dark:bg-royal-900/40",
         green: "text-emerald-600 bg-emerald-100 dark:bg-emerald-900/40",
@@ -219,16 +422,20 @@ function StatCard({ title, value, icon, trend, isPositive, color = "royal" }: an
 
     return (
         <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl p-4 shadow-sm flex flex-col justify-between">
-            <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{title}</h3>
-                <div className={cn("p-1.5 rounded-lg", colorClasses[color])}>
-                    {icon}
-                </div>
+            <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider leading-tight">{title}</h3>
+                <div className={cn("p-1.5 rounded-lg shrink-0", colorClasses[color])}>{icon}</div>
             </div>
+            {hint ? <p className="text-[10px] text-slate-400 mb-2 leading-snug">{hint}</p> : null}
             <div>
                 <p className="text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
                 {trend && (
-                    <p className={cn("text-xs font-medium mt-1", isPositive ? "text-emerald-500" : "text-amber-500")}>
+                    <p
+                        className={cn(
+                            "text-xs font-medium mt-1",
+                            isPositive ? "text-emerald-500" : "text-amber-500"
+                        )}
+                    >
                         {isPositive ? "↑" : "↓"} {trend}
                     </p>
                 )}
@@ -243,7 +450,9 @@ function ProgressBar({ label, value, total, color }: any) {
         <div>
             <div className="flex justify-between text-xs font-medium mb-1">
                 <span className="text-slate-700 dark:text-slate-300">{label}</span>
-                <span className="text-slate-500">{value} ({percent.toFixed(0)}%)</span>
+                <span className="text-slate-500">
+                    {value} ({percent.toFixed(0)}%)
+                </span>
             </div>
             <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
                 <div className={cn("h-full rounded-full transition-all duration-500", color)} style={{ width: `${percent}%` }} />

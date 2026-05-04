@@ -126,26 +126,33 @@ export function DashboardLegendModal({ isOpen, onClose }: DashboardLegendModalPr
                                 <div className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-4">
                                     <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
                                         <Calendar className="w-5 h-5 text-indigo-500" />
-                                        <span className="font-semibold text-sm">Agent Calling Hours</span>
+                                        <span className="font-semibold text-sm">Where “lead age” starts</span>
                                     </div>
                                     <p className="text-sm text-slate-600 dark:text-slate-400 ml-7">
-                                        <strong>9:00 AM to 9:00 PM</strong>, Monday through Saturday.
-                                        <br />
-                                        <span className="text-blue-600 dark:text-blue-400 font-medium">No calls are made on Sundays.</span>
+                                        New rows are ingested from the legacy CRM when a lead is already about <strong>30 days old there</strong>. The first day they appear <strong>in this dashboard / CRM</strong> is treated as <strong>day 1</strong> for cadence and scheduling below.
                                     </p>
 
                                     <div className="h-px bg-slate-200 dark:bg-slate-800 my-2"></div>
 
                                     <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
                                         <Clock className="w-5 h-5 text-indigo-500" />
-                                        <span className="font-semibold text-sm">Daily Callback Times</span>
+                                        <span className="font-semibold text-sm">Outbound call cadence (this CRM)</span>
                                     </div>
                                     <ul className="list-disc list-outside ml-12 text-sm text-slate-600 dark:text-slate-400 space-y-2">
-                                        <li><strong>Initial Call:</strong> Placed at <strong>9:00 AM</strong> if the lead came in after hours, or immediately after the lead is received during business hours.</li>
-                                        <li><strong>Standard Callbacks:</strong> Scheduled at <strong>12:00 PM</strong>, <strong>5:30 PM</strong>, and <strong>8:00 PM</strong>.</li>
-                                        <li><strong>Leads older than 14 days:</strong> Scheduled callbacks will only occur at <strong>11:00 AM</strong> and <strong>6:30 PM</strong>.</li>
-                                        <li><strong>Leads older than 30 days:</strong> No further scheduled callbacks will be made.</li>
+                                        <li><strong>Days 1–30:</strong> outbound attempt every <strong>3 days</strong>.</li>
+                                        <li><strong>Days 31–90:</strong> <strong>once per week</strong>.</li>
+                                        <li><strong>After day 90:</strong> <strong>once every 14 days</strong>; when that cycle completes without progress, the opportunity is set to <strong>dead</strong> via the <strong>update opportunity</strong> integration.</li>
                                     </ul>
+
+                                    <div className="h-px bg-slate-200 dark:bg-slate-800 my-2"></div>
+
+                                    <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                                        <Clock className="w-5 h-5 text-indigo-500" />
+                                        <span className="font-semibold text-sm">Call time windows</span>
+                                    </div>
+                                    <p className="text-sm text-slate-600 dark:text-slate-400 ml-7">
+                                        Each outbound attempt is scheduled for <strong>10:00 AM</strong> <em>or</em> <strong>6:00 PM</strong> local time — <strong>not both</strong> on the same cycle. The system <strong>alternates</strong> the window each time (for example, if the last attempt was at 10:00 AM, the next attempt after the cadence delay uses the 6:00 PM window).
+                                    </p>
                                 </div>
                             </div>
 

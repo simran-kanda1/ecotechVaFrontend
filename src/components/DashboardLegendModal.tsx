@@ -136,23 +136,50 @@ export function DashboardLegendModal({ isOpen, onClose }: DashboardLegendModalPr
 
                                     <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
                                         <Clock className="w-5 h-5 text-indigo-500" />
-                                        <span className="font-semibold text-sm">Outbound call cadence (this CRM)</span>
+                                        <span className="font-semibold text-sm">Call windows</span>
                                     </div>
                                     <ul className="list-disc list-outside ml-12 text-sm text-slate-600 dark:text-slate-400 space-y-2">
-                                        <li><strong>Days 1–30:</strong> outbound attempt every <strong>3 days</strong>.</li>
-                                        <li><strong>Days 31–90:</strong> <strong>once per week</strong>.</li>
-                                        <li><strong>After day 90:</strong> <strong>once every 14 days</strong>; when that cycle completes without progress, the opportunity is set to <strong>dead</strong> via the <strong>update opportunity</strong> integration.</li>
+                                        <li>Outbound dials only at <strong>10:00 AM</strong> and <strong>6:00 PM Toronto</strong>.</li>
+                                        <li>Windows <strong>alternate</strong> each attempt (10 → 6 → 10…).</li>
+                                        <li><strong>No Sunday dials</strong>.</li>
+                                        <li><strong>Max 2 calls per phone per day</strong>; a 3rd is blocked and you still get an email alert.</li>
                                     </ul>
 
                                     <div className="h-px bg-slate-200 dark:bg-slate-800 my-2"></div>
 
                                     <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
                                         <Clock className="w-5 h-5 text-indigo-500" />
-                                        <span className="font-semibold text-sm">Call time windows</span>
+                                        <span className="font-semibold text-sm">Phase 1 — First 15 days in the system</span>
                                     </div>
-                                    <p className="text-sm text-slate-600 dark:text-slate-400 ml-7">
-                                        Each outbound attempt is scheduled for <strong>10:00 AM</strong> <em>or</em> <strong>6:00 PM</strong> local time — <strong>not both</strong> on the same cycle. The system <strong>alternates</strong> the window each time (for example, if the last attempt was at 10:00 AM, the next attempt after the cadence delay uses the 6:00 PM window).
-                                    </p>
+                                    <ul className="list-disc list-outside ml-12 text-sm text-slate-600 dark:text-slate-400 space-y-2">
+                                        <li>Call <strong>every other day</strong> (every 2 days).</li>
+                                        <li>Continues as long as there’s <strong>no answer / voicemail / failed connect</strong>.</li>
+                                        <li>If they <strong>answer, book, or request a follow-up</strong> → normal existing rules apply (callbacks cancelled / follow-up scheduled as today).</li>
+                                    </ul>
+
+                                    <div className="h-px bg-slate-200 dark:bg-slate-800 my-2"></div>
+
+                                    <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                                        <Clock className="w-5 h-5 text-indigo-500" />
+                                        <span className="font-semibold text-sm">Phase 2 — Day 15 onward</span>
+                                    </div>
+                                    <ul className="list-disc list-outside ml-12 text-sm text-slate-600 dark:text-slate-400 space-y-2">
+                                        <li>Call <strong>once every 5 days</strong>.</li>
+                                        <li><strong>Maximum of 3 attempts</strong> in this phase.</li>
+                                        <li>Same “no answer / voicemail / failed” → schedule next late attempt.</li>
+                                    </ul>
+
+                                    <div className="h-px bg-slate-200 dark:bg-slate-800 my-2"></div>
+
+                                    <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                                        <Clock className="w-5 h-5 text-indigo-500" />
+                                        <span className="font-semibold text-sm">End of cadence</span>
+                                    </div>
+                                    <ul className="list-disc list-outside ml-12 text-sm text-slate-600 dark:text-slate-400 space-y-2">
+                                        <li>After <strong>3 late-phase attempts</strong> with still no contact: stop scheduling further automated calls.</li>
+                                        <li>Set opportunity status to <strong>Cold Call</strong> in the CRM.</li>
+                                        <li>Does <strong>not</strong> overwrite if already Booked / Sold / Dead / Cold Call / etc.</li>
+                                    </ul>
                                 </div>
                             </div>
 

@@ -6,7 +6,7 @@ import { addDoc, collection, doc, serverTimestamp, updateDoc, query, where, getD
 import { format } from "date-fns";
 import { getNextCallbackTime, inferOutboundWindowFromTime, formatPhoneNumber } from "../lib/utils";
 import { useState, useEffect } from "react";
-import { fetchCallsForNumber, makeOutboundCall } from "../lib/retell";
+import { fetchCallsForNumber, fetchRetellCall, makeOutboundCall } from "../lib/retell";
 import { logActivity } from "../lib/activity-logger";
 import { auth } from "../lib/firebase";
 
@@ -39,10 +39,14 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
     const [callHistory, setCallHistory] = useState<any[]>([]);
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
+    // v3 list-calls omits transcript/recording; hydrate via get-call when needed
+    const [retellDetail, setRetellDetail] = useState<{ transcript?: string; recordingUrl?: string } | null>(null);
+
     useEffect(() => {
         if (call) {
             setIsUrgent(call.isUrgent || false);
             setUrgentReason(call.urgentReason || "");
+            setRetellDetail(null);
         }
     }, [call]);
 
@@ -91,6 +95,29 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
         loadHistory();
     }, [isOpen, phone]);
 
+    useEffect(() => {
+        const loadRetellDetail = async () => {
+            if (!isOpen || !call?.isRetellCall) return;
+            const callId = call.call_id || call.id;
+            const hasTranscript = Boolean(call.transcript || analysis.transcript);
+            const hasRecording = Boolean(call.recordingUrl || call.recording_url || getValue('recordingUrl'));
+            if (!callId || (hasTranscript && hasRecording)) return;
+
+            try {
+                const detail = await fetchRetellCall(callId);
+                if (!detail) return;
+                setRetellDetail({
+                    transcript: detail.transcript,
+                    recordingUrl: detail.recording_url,
+                });
+            } catch (err) {
+                console.error("Failed to load Retell call detail", err);
+            }
+        };
+        loadRetellDetail();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate once per open Retell call
+    }, [isOpen, call?.id, call?.call_id, call?.isRetellCall]);
+
     if (!call) return null;
 
     // Key Info Fields requested
@@ -124,9 +151,9 @@ export function CallDetailModal({ isOpen, onClose, call, onViewOpportunity, onLe
     const callbackAttempt = getValue('callbackAttemptNumber') || getValue('nextCallbackAttempt');
     const hasCallbacks = !!nextCallbackTime || (callbackAttempt && callbackAttempt > 0);
 
-    // Handling transcripts
-    const transcript = call.transcript || analysis.transcript || "No transcript available.";
-    const recordingUrl = call.recordingUrl || customData.recordingUrl;
+    // Handling transcripts (list-calls v3 may omit these; retellDetail fills from get-call)
+    const transcript = call.transcript || analysis.transcript || retellDetail?.transcript || "No transcript available.";
+    const recordingUrl = call.recordingUrl || customData.recordingUrl || retellDetail?.recordingUrl;
 
     // Helper to format Product list
     const formatProducts = (products: any) => {

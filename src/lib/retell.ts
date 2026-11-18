@@ -1,6 +1,7 @@
 // Retell API Client (Lightweight replacement for retell-sdk to avoid Node.js polyfills)
 
 const apiKey = import.meta.env.VITE_RETELL_API_KEY || "key_fad360827b8750f1277df70c3573";
+const RETELL_API_BASE = "https://api.retellai.com";
 
 // Phone number to filter by (EcoTech's number)
 export const ECOTECH_NUMBER = "+12898166495";
@@ -30,6 +31,52 @@ export interface RetellCall {
     // Add other fields as needed
 }
 
+interface ListCallsResponse {
+    items?: RetellCall[];
+    pagination_key?: string;
+    has_more?: boolean;
+    total?: number;
+}
+
+function parseListCallsResponse(data: unknown): { items: RetellCall[]; paginationKey?: string; hasMore: boolean } {
+    // v3 returns { items, pagination_key, has_more }; tolerate legacy top-level arrays.
+    if (Array.isArray(data)) {
+        return {
+            items: data,
+            paginationKey: data.length > 0 ? data[data.length - 1].call_id : undefined,
+            hasMore: data.length > 0,
+        };
+    }
+
+    const page = data as ListCallsResponse;
+    const items = Array.isArray(page?.items) ? page.items : [];
+    return {
+        items,
+        paginationKey: page?.pagination_key,
+        hasMore: Boolean(page?.has_more),
+    };
+}
+
+/**
+ * Full call details (includes transcript / recording_url omitted from v3 list-calls).
+ */
+export async function fetchRetellCall(callId: string): Promise<RetellCall | null> {
+    if (!apiKey || !callId) return null;
+
+    const response = await fetch(`${RETELL_API_BASE}/v2/get-call/${encodeURIComponent(callId)}`, {
+        method: "GET",
+        headers: {
+            Authorization: `Bearer ${apiKey}`,
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error(`Retell get-call error: ${response.status} ${response.statusText}`);
+    }
+
+    return (await response.json()) as RetellCall;
+}
+
 export async function fetchRetellCalls(
     limit = 50000,
     filterCriteria?: { start_timestamp?: { lower_threshold?: number; upper_threshold?: number } }
@@ -51,7 +98,7 @@ export async function fetchRetellCalls(
             const remaining = limit - allCalls.length;
             const fetchLimit = Math.min(remaining, BATCH_SIZE);
 
-            const response = await fetch("https://api.retellai.com/v2/list-calls", {
+            const response = await fetch(`${RETELL_API_BASE}/v3/list-calls`, {
                 method: "POST",
                 headers: {
                     "Authorization": `Bearer ${apiKey}`,
@@ -69,22 +116,14 @@ export async function fetchRetellCalls(
                 throw new Error(`Retell API error: ${response.status} ${response.statusText}`);
             }
 
-            const data = await response.json();
+            const { items, paginationKey: nextKey, hasMore } = parseListCallsResponse(await response.json());
 
-            if (Array.isArray(data)) {
-                if (data.length === 0) break;
+            if (items.length === 0) break;
 
-                allCalls = [...allCalls, ...data];
+            allCalls = [...allCalls, ...items];
 
-                // If we got fewer than we asked for, we are at the end
-                if (data.length < fetchLimit) break;
-
-                // Prepare next cursor
-                paginationKey = data[data.length - 1].call_id;
-            } else {
-                console.warn("Retell API returned unexpected format", data);
-                break;
-            }
+            if (!hasMore || !nextKey) break;
+            paginationKey = nextKey;
         }
 
         return allCalls as RetellCall[];
@@ -116,7 +155,7 @@ export async function fetchCallsForNumber(phoneNumber: string): Promise<RetellCa
         let totalSearched = 0;
 
         while (totalSearched < 2000) {
-            const response = await fetch("https://api.retellai.com/v2/list-calls", {
+            const response = await fetch(`${RETELL_API_BASE}/v3/list-calls`, {
                 method: "POST",
                 headers: {
                     "Authorization": `Bearer ${apiKey}`,
@@ -131,24 +170,22 @@ export async function fetchCallsForNumber(phoneNumber: string): Promise<RetellCa
 
             if (!response.ok) break;
 
-            const data = await response.json();
-            if (Array.isArray(data) && data.length > 0) {
-                totalSearched += data.length;
+            const { items, paginationKey: nextKey, hasMore } = parseListCallsResponse(await response.json());
+            if (items.length === 0) break;
 
-                // Keep only matches
-                const matches = data.filter((c: RetellCall) => {
-                    // Check if either to or from matches the target number AND the company's number was involved
-                    const isTargetInvolved = matchNumber(c.to_number) || matchNumber(c.from_number);
-                    return isTargetInvolved;
-                });
+            totalSearched += items.length;
 
-                allCalls = [...allCalls, ...matches];
+            // Keep only matches
+            const matches = items.filter((c: RetellCall) => {
+                // Check if either to or from matches the target number AND the company's number was involved
+                const isTargetInvolved = matchNumber(c.to_number) || matchNumber(c.from_number);
+                return isTargetInvolved;
+            });
 
-                if (data.length < 1000) break;
-                paginationKey = data[data.length - 1].call_id;
-            } else {
-                break;
-            }
+            allCalls = [...allCalls, ...matches];
+
+            if (!hasMore || !nextKey) break;
+            paginationKey = nextKey;
         }
         return allCalls;
     } catch (e) {
@@ -274,7 +311,7 @@ export async function makeOutboundCall(toNumber: string, retellAgentId?: string,
     console.log("Dispatching Retell body:", body);
 
     
-    const response = await fetch("https://api.retellai.com/v2/create-phone-call", {
+    const response = await fetch(`${RETELL_API_BASE}/v2/create-phone-call`, {
         method: "POST",
         headers: {
             "Authorization": `Bearer ${apiKey}`,

@@ -38,6 +38,51 @@ interface ListCallsResponse {
     total?: number;
 }
 
+/** Caller-facing filter shape used across the app (pre-v3 threshold style). */
+export type RetellCallFilterCriteria = {
+    start_timestamp?: { lower_threshold?: number; upper_threshold?: number };
+};
+
+function toV3FilterCriteria(filterCriteria?: RetellCallFilterCriteria) {
+    if (!filterCriteria?.start_timestamp) return filterCriteria;
+
+    const { lower_threshold, upper_threshold } = filterCriteria.start_timestamp;
+
+    // v3 requires typed filters: { type, op, value } — legacy lower/upper_threshold returns 400.
+    if (lower_threshold != null && upper_threshold != null) {
+        return {
+            ...filterCriteria,
+            start_timestamp: {
+                type: "range",
+                op: "bt",
+                value: [lower_threshold, upper_threshold],
+            },
+        };
+    }
+    if (lower_threshold != null) {
+        return {
+            ...filterCriteria,
+            start_timestamp: {
+                type: "number",
+                op: "ge",
+                value: lower_threshold,
+            },
+        };
+    }
+    if (upper_threshold != null) {
+        return {
+            ...filterCriteria,
+            start_timestamp: {
+                type: "number",
+                op: "le",
+                value: upper_threshold,
+            },
+        };
+    }
+
+    return filterCriteria;
+}
+
 function parseListCallsResponse(data: unknown): { items: RetellCall[]; paginationKey?: string; hasMore: boolean } {
     // v3 returns { items, pagination_key, has_more }; tolerate legacy top-level arrays.
     if (Array.isArray(data)) {
@@ -79,7 +124,7 @@ export async function fetchRetellCall(callId: string): Promise<RetellCall | null
 
 export async function fetchRetellCalls(
     limit = 50000,
-    filterCriteria?: { start_timestamp?: { lower_threshold?: number; upper_threshold?: number } }
+    filterCriteria?: RetellCallFilterCriteria
 ): Promise<RetellCall[]> {
     if (!apiKey) {
         console.error("Retell API Key is missing");
@@ -91,6 +136,7 @@ export async function fetchRetellCalls(
     let allCalls: RetellCall[] = [];
     let paginationKey: string | undefined = undefined;
     const BATCH_SIZE = 1000; // Retell API max limit per request
+    const v3FilterCriteria = toV3FilterCriteria(filterCriteria);
 
     try {
         while (allCalls.length < limit) {
@@ -107,13 +153,14 @@ export async function fetchRetellCalls(
                 body: JSON.stringify({
                     limit: fetchLimit,
                     pagination_key: paginationKey,
-                    filter_criteria: filterCriteria,
+                    filter_criteria: v3FilterCriteria,
                     sort_order: 'descending' // Default is descending, making sure we get latest first
                 })
             });
 
             if (!response.ok) {
-                throw new Error(`Retell API error: ${response.status} ${response.statusText}`);
+                const errBody = await response.text().catch(() => "");
+                throw new Error(`Retell API error: ${response.status} ${response.statusText}${errBody ? ` - ${errBody}` : ""}`);
             }
 
             const { items, paginationKey: nextKey, hasMore } = parseListCallsResponse(await response.json());
